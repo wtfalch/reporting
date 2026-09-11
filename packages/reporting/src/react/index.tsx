@@ -89,12 +89,7 @@ export function ConsentControl(props: {
   const { answer, mode, accept, decline, beacon } = useContext(ReportingContext);
   if (mode !== 'consented' || answer !== null || !beacon) return null;
   return (
-    <div
-      data-reporting-consent=""
-      className={props.className}
-      role="region"
-      aria-label="Analytics consent"
-    >
+    <section data-reporting-consent="" className={props.className} aria-label="Analytics consent">
       {props.children}
       <div data-reporting-consent-actions="">
         <button type="button" data-reporting-consent-decline="" onClick={decline}>
@@ -104,6 +99,6 @@ export function ConsentControl(props: {
           {props.acceptLabel ?? 'Allow'}
         </button>
       </div>
-    </div>
+    </section>
   );
 }

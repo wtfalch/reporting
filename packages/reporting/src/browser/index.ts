@@ -81,7 +81,7 @@ export function createBeacon(options: BeaconOptions): Beacon {
     options.send ??
     ((url: string, body: string) => {
       const blob = new Blob([body], { type: 'application/json' });
-      if (!(win.navigator.sendBeacon && win.navigator.sendBeacon(url, blob))) {
+      if (!win.navigator.sendBeacon?.(url, blob)) {
         void win.fetch(url, { method: 'POST', body, keepalive: true, credentials: 'include' });
       }
     });
@@ -98,8 +98,12 @@ export function createBeacon(options: BeaconOptions): Beacon {
     if (cookie && answer !== 'declined') cookie = null;
   }
   let sessionId: string | null = null;
+  function inMemorySession(): string {
+    if (!sessionId) sessionId = randomId();
+    return sessionId;
+  }
   function session(): string | null {
-    if (declined()) return (sessionId ??= randomId());
+    if (declined()) return inMemorySession();
     try {
       const stored = win.sessionStorage.getItem(`${COOKIE}s`);
       if (stored && /^[a-f0-9]{32}$/.test(stored)) return stored;
@@ -107,7 +111,7 @@ export function createBeacon(options: BeaconOptions): Beacon {
       win.sessionStorage.setItem(`${COOKIE}s`, fresh);
       return fresh;
     } catch {
-      return (sessionId ??= randomId());
+      return inMemorySession();
     }
   }
 
