@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-09-12
+
+- `tenantFor(userId, pathname, route)`: the collector hands the host the
+  pathname as sent (query string gone) beside the normalised route, since the
+  route has already replaced the organisation id the host needs to check.
+
 ## 0.2.0 — 2026-09-12
 
 The analytics record (docs/plans/reporting.md D13 to D15, D17; addendum A3,

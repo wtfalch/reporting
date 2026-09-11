@@ -152,7 +152,7 @@ const handle = collectHandler({
   reporting, db,
   sites: JSON.parse(process.env.REPORTING_SITES ?? '{}'),
   getUserId: async () => (await getSession())?.user.id ?? null,
-  tenantFor: async (userId, path) => tenantIfMember(userId, path),
+  tenantFor: async (userId, pathname) => tenantIfMember(userId, pathname),
   normalisePath: routePattern,
 });
 export const POST = handle;

@@ -28,10 +28,12 @@ export interface CollectorOptions {
   readonly getUserId?: (request: Request) => Promise<string | null>;
   /**
    * The organisation a row belongs to, from the resolved person and the
-   * normalised path; attach one only when that person is a member of it.
-   * Anonymous or refused claims store null.
+   * pathname as the browser sent it (the query string already gone); attach
+   * one only when that person is a member of it. Anonymous or refused claims
+   * store null. The normalised route is the third argument, for a host that
+   * decides by route rather than by id.
    */
-  readonly tenantFor?: (userId: string, path: string) => Promise<string | null>;
+  readonly tenantFor?: (userId: string, pathname: string, route: string) => Promise<string | null>;
   /** The host's route normalisation; the package's default handles what it does not. */
   readonly normalisePath?: (pathname: string) => string;
   readonly identifySignedIn?: () => Promise<boolean>;
@@ -165,11 +167,12 @@ export function createCollector(options: CollectorOptions): {
     const country = countryOf(request.headers.get('cf-ipcountry'));
     const rows: AnalyticsRow[] = [];
     for (const event of batch.events) {
-      const path = normalise(event.path);
+      const pathname = event.path.split(/[?#]/)[0] ?? '/';
+      const path = normalise(pathname);
       let tenantId: string | null = null;
       if (userId && options.tenantFor) {
         try {
-          tenantId = await options.tenantFor(userId, path);
+          tenantId = await options.tenantFor(userId, pathname, path);
         } catch {
           tenantId = null;
         }

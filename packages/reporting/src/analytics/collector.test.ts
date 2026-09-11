@@ -48,8 +48,10 @@ function collector(over: Partial<Parameters<typeof createCollector>[0]> = {}) {
     sites: { wtfalch: { origins: ['https://wtfalch.dev'] } },
     getUserId: async (req) =>
       req.headers.get('cookie')?.includes('session=ok') ? 'user_ada' : null,
-    tenantFor: async (userId, path) =>
-      userId === 'user_ada' && path.startsWith('/org/:id') ? TENANT : null,
+    tenantFor: async (userId, pathname, route) =>
+      userId === 'user_ada' && route.startsWith('/org/:id') && pathname.includes(TENANT)
+        ? TENANT
+        : null,
     ...over,
   });
   return { c, log };
