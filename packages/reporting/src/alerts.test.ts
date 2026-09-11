@@ -34,7 +34,7 @@ describe('projectDetail', () => {
       count: 3,
       ok: false,
       nothing: null,
-      rows: '[3 items]',
+      rows: '[nested]',
       nested: '[nested]',
     });
     expect(flatDataSchema.safeParse(out).success).toBe(true);

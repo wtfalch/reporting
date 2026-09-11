@@ -23,6 +23,9 @@ export function healthHandler(housekeeping: { tick(): Promise<void> }): () => Pr
   };
 }
 
+/** `<16 hex>-<colo>`, as Cloudflare emits it. */
+const RAY_PATTERN = /^[0-9a-f]{16}-[A-Z0-9]{3,6}$/;
+
 export interface RequestContext {
   /** Cloudflare's `cf-ray` when the request came through the tunnel, else a uuid. */
   readonly id: string;
@@ -43,8 +46,12 @@ export async function requestContext(): Promise<RequestContext> {
   try {
     const h = await headers();
     const country = h.get('cf-ipcountry');
+    // A ray id is Cloudflare's or it is nothing: a request that reached the
+    // origin some other way (the Docker network, a preview host) could
+    // otherwise choose the id stamped on the audit rows of this request.
+    const ray = h.get('cf-ray');
     return {
-      id: (h.get('cf-ray') ?? randomUUID()).slice(0, 128),
+      id: ray && RAY_PATTERN.test(ray) ? ray : randomUUID(),
       ip: h.get('cf-connecting-ip'),
       userAgent: h.get('user-agent'),
       country: country && /^[A-Z]{2}$/.test(country) ? country : null,

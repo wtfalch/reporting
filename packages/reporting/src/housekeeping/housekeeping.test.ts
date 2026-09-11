@@ -43,7 +43,7 @@ async function row(name: string) {
 describe('the claim protocol', () => {
   it('creates the row, runs a due task once, and schedules the next run', async () => {
     let runs = 0;
-    const hk = createHousekeeping({ reporting, debounceMs: 0 });
+    const hk = createHousekeeping({ reporting, db: t.db, debounceMs: 0 });
     hk.register(
       task('t.one', async () => {
         runs += 1;
@@ -63,7 +63,7 @@ describe('the claim protocol', () => {
 
   it('a live lease is not taken over; an expired one is', async () => {
     let runs = 0;
-    const hk = createHousekeeping({ reporting, debounceMs: 0 });
+    const hk = createHousekeeping({ reporting, db: t.db, debounceMs: 0 });
     hk.register(
       task('t.lease', async () => {
         runs += 1;
@@ -85,7 +85,7 @@ describe('the claim protocol', () => {
   });
 
   it('a superseded token cannot renew or complete', async () => {
-    const hk = createHousekeeping({ reporting, debounceMs: 0 });
+    const hk = createHousekeeping({ reporting, db: t.db, debounceMs: 0 });
     let sawRenew: boolean | null = null;
     hk.register(
       task('t.fence', async (ctx) => {
@@ -105,7 +105,7 @@ describe('the claim protocol', () => {
   });
 
   it('a failing task records the error, retries later, and writes an error event', async () => {
-    const hk = createHousekeeping({ reporting, debounceMs: 0 });
+    const hk = createHousekeeping({ reporting, db: t.db, debounceMs: 0 });
     hk.register(
       task('t.bad', async () => {
         throw new Error('boom');
@@ -122,7 +122,7 @@ describe('the claim protocol', () => {
   });
 
   it('a task that overruns its lease is failed by the timeout', async () => {
-    const hk = createHousekeeping({ reporting, debounceMs: 0 });
+    const hk = createHousekeeping({ reporting, db: t.db, debounceMs: 0 });
     hk.register(
       task('t.slow', () => new Promise((resolve) => setTimeout(resolve, 500)), { lease: 50 }),
     );
@@ -133,7 +133,7 @@ describe('the claim protocol', () => {
 
   it('tick() debounces per process and writes a tick row only when it claimed something', async () => {
     let runs = 0;
-    const hk = createHousekeeping({ reporting, debounceMs: 60_000 });
+    const hk = createHousekeeping({ reporting, db: t.db, debounceMs: 60_000 });
     hk.register(
       task('t.tick', async () => {
         runs += 1;
@@ -147,14 +147,14 @@ describe('the claim protocol', () => {
   });
 
   it('refuses a task name outside the pattern', () => {
-    const hk = createHousekeeping({ reporting });
+    const hk = createHousekeeping({ reporting, db: t.db });
     expect(() => hk.register(task('nodot', async () => {}))).toThrow();
   });
 });
 
 describe('the built-in tasks', () => {
   it('prune_events deletes by the operator setting and says how many', async () => {
-    const hk = createHousekeeping({ reporting, debounceMs: 0 });
+    const hk = createHousekeeping({ reporting, db: t.db, debounceMs: 0 });
     hk.register(pruneEvents);
     await t.exec(
       `insert into reporting_events (level, kind, site, message, occurred_at) values
@@ -171,7 +171,7 @@ describe('the built-in tasks', () => {
   });
 
   it('retention_lag alerts when the oldest row is older than 1.5 windows, and not otherwise', async () => {
-    const hk = createHousekeeping({ reporting, debounceMs: 0 });
+    const hk = createHousekeeping({ reporting, db: t.db, debounceMs: 0 });
     hk.register(retentionLag);
     await t.exec(
       `insert into reporting_events (level, kind, site, message, occurred_at) values ('info', 'x.y', 'test', 'a', now() - interval '20 days')`,
@@ -206,7 +206,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('on a real Postgres', () => {
           runs += 1;
           await new Promise((resolve) => setTimeout(resolve, 300));
         });
-      const a = createHousekeeping({ reporting, debounceMs: 0 });
+      const a = createHousekeeping({ reporting, db: t.db, debounceMs: 0 });
       const b = createHousekeeping({
         reporting: createReporting({
           db: other.db,
@@ -215,6 +215,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('on a real Postgres', () => {
           mode: 'test',
           defer: () => {},
         }),
+        db: other.db,
         debounceMs: 0,
       });
       a.register(slow('t.race'));

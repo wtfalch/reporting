@@ -42,7 +42,6 @@ export class Writer {
   private droppedSinceReport = 0;
   private invalid = 0;
   private flushed = 0;
-  private failedFlushes = 0;
 
   constructor(private readonly o: WriterOptions) {}
 
@@ -157,7 +156,7 @@ export class Writer {
       try {
         ok = await attempt;
       } finally {
-        if (this.inFlight === attempt) this.inFlight = null;
+        this.inFlight = null;
       }
       // A failed insert leaves its rows queued; do not spin on the database
       // inside one call. The timer and the next defer try again.
@@ -190,7 +189,6 @@ export class Writer {
       this.flushed += batch.length;
       return true;
     } catch (error) {
-      this.failedFlushes += 1;
       // Back at the front, so order survives; the bound still applies, and
       // whatever does not fit is counted as dropped rather than kept for ever.
       const room = Math.max(0, this.o.queueLimit - this.queue.length);
@@ -212,7 +210,6 @@ export class Writer {
       dropped: this.dropped,
       invalid: this.invalid,
       flushed: this.flushed,
-      failedFlushes: this.failedFlushes,
     };
   }
 }

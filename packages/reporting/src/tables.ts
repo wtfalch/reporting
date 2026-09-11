@@ -34,16 +34,24 @@ export const reportingEvents = pgTable(
     targetType: text('target_type'),
     targetId: text('target_id'),
     message: text('message').notNull(),
-    data: jsonb('data').$type<Record<string, string | number | boolean | null>>().notNull(),
+    data: jsonb('data')
+      .$type<Record<string, string | number | boolean | null>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     schemaVersion: smallint('schema_version').notNull().default(1),
   },
   (t) => [
     index('reporting_events_time_idx').on(t.occurredAt.desc(), t.id.desc()),
-    // The partial predicates live in the SQL; these declare the columns.
-    index('reporting_events_tenant_time_idx').on(t.tenantId, t.occurredAt.desc(), t.id.desc()),
+    index('reporting_events_tenant_time_idx')
+      .on(t.tenantId, t.occurredAt.desc(), t.id.desc())
+      .where(sql`${t.tenantId} is not null`),
     index('reporting_events_ns_time_idx').on(t.kindNs, t.occurredAt.desc(), t.id.desc()),
-    index('reporting_events_problem_time_idx').on(t.occurredAt.desc(), t.id.desc()),
-    index('reporting_events_request_idx').on(t.requestId, t.occurredAt.desc()),
+    index('reporting_events_problem_time_idx')
+      .on(t.occurredAt.desc(), t.id.desc())
+      .where(sql`${t.level} in ('error', 'alert')`),
+    index('reporting_events_request_idx')
+      .on(t.requestId, t.occurredAt.desc())
+      .where(sql`${t.requestId} is not null`),
   ],
 );
 
@@ -56,7 +64,6 @@ export const reportingTasks = pgTable('reporting_tasks', {
   claimToken: uuid('claim_token'),
   lastOutcome: text('last_outcome'),
   lastError: text('last_error'),
-  watermark: text('watermark'),
 });
 
 export const reportingSettings = pgTable('reporting_settings', {

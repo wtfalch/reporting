@@ -19,8 +19,6 @@ const DEFS = {
   },
 } as const satisfies Record<keyof Settings, { schema: z.ZodType<number>; default: number }>;
 
-export const SETTING_KEYS = Object.keys(DEFS) as (keyof Settings)[];
-
 export const DEFAULT_SETTINGS: Settings = Object.freeze({
   'events.retention_days': DEFS['events.retention_days'].default,
 });

@@ -51,13 +51,14 @@ export interface TaskContext {
 
 export interface HousekeepingOptions {
   reporting: Reporting;
-  db?: Db;
+  db: Db;
   now?: () => Date;
   /** Per process. Default 60,000 ms. */
   debounceMs?: number;
-  /** Tasks run at once. Default 2. */
-  concurrency?: number;
 }
+
+/** Tasks run at once: enough that a slow prune does not delay the alerts, few enough to be one connection each. */
+const CONCURRENCY = 2;
 
 export interface Housekeeping {
   /** Idempotent by name. The row is created on the next tick. */
@@ -73,10 +74,9 @@ type Outcome = 'ok' | 'error' | 'skipped';
 
 export function createHousekeeping(options: HousekeepingOptions): Housekeeping {
   const { reporting } = options;
-  const db = options.db ?? reporting.db;
+  const db = options.db;
   const now = options.now ?? (() => new Date());
   const debounceMs = options.debounceMs ?? 60_000;
-  const concurrency = Math.max(1, options.concurrency ?? 2);
   const registry = new Map<string, Task>();
   let lastTick = 0;
   let ticking: Promise<void> | null = null;
@@ -212,7 +212,7 @@ export function createHousekeeping(options: HousekeepingOptions): Housekeeping {
     const settings = await reporting.settings.get();
     const queue = [...registry.values()];
     const counts = { claimed: 0, skipped: 0, ran: 0, failed: 0 };
-    const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
       for (let task = queue.shift(); task; task = queue.shift()) {
         try {
           const outcome = await runOne(task, settings);

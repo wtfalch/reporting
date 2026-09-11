@@ -30,9 +30,7 @@ export function projectDetail(detail: unknown): FlatData {
       if (value === null || typeof value === 'boolean') out[key] = value;
       else if (typeof value === 'number') out[key] = Number.isFinite(value) ? value : String(value);
       else if (typeof value === 'string') out[key] = value.slice(0, 500);
-      else if (Array.isArray(value)) out[key] = `[${value.length} items]`;
       else out[key] = '[nested]';
-      if (Object.keys(out).length >= 40) break;
     }
     return out;
   }

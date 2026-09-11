@@ -10,7 +10,7 @@ export * from './schema.js';
 export * from './tables.js';
 export * from './types.js';
 export { alertKind, projectDetail } from './alerts.js';
-export { DEFAULT_SETTINGS, RETENTION_BOUNDS, SETTING_KEYS } from './settings.js';
+export { DEFAULT_SETTINGS, RETENTION_BOUNDS } from './settings.js';
 
 function modeFromEnv(): Mode {
   const env = process.env.NODE_ENV;
@@ -45,7 +45,6 @@ export function createReporting(options: ReportingOptions): Reporting {
 
   const reporting: Reporting = {
     site,
-    db: options.db,
     log: options.log,
     tables,
     event: (input) => writer.event(input),

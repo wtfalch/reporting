@@ -46,7 +46,7 @@ export const LIMITS = {
 
 const scalar = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
-/** Flat, bounded, and free of the banned keys. Numbers must be finite: JSON has no NaN. */
+/** Flat, bounded, banned keys refused, numbers finite. */
 export const flatDataSchema = z.record(z.string(), scalar).superRefine((data, ctx) => {
   for (const key of Object.keys(data)) {
     if ((BANNED_KEYS as readonly string[]).includes(key)) {
@@ -68,13 +68,20 @@ export type FlatData = z.infer<typeof flatDataSchema>;
 
 const bounded = (max: number) => z.string().min(1).max(max);
 
-export const actorSchema = z.strictObject({
+/**
+ * `z.object`, not strict: a host hands over its resolved principal, which
+ * carries a display name and an address beside `class` and `id`, and those
+ * must be dropped rather than refused. Stripping is the privacy behaviour;
+ * refusing would make every host's call site narrow by hand, and the first
+ * one did not.
+ */
+export const actorSchema = z.object({
   class: z.enum(ACTOR_CLASSES),
   id: bounded(LIMITS.actorId),
 });
 export type Actor = z.infer<typeof actorSchema>;
 
-export const targetSchema = z.strictObject({
+export const targetSchema = z.object({
   type: bounded(LIMITS.targetType),
   id: bounded(LIMITS.targetId),
 });

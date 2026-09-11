@@ -6,7 +6,6 @@ import { tables } from '../tables.js';
 import type {
   Actor,
   AlertFinding,
-  Db,
   EventsPageOptions,
   Logger,
   Reporting,
@@ -41,11 +40,6 @@ export function createFakeReporting(opts: { site?: string; log?: Logger } = {}):
     tables,
     rows,
     alerts,
-    // Not a database; a host's test that reaches `db` through the fake is
-    // testing the wrong thing, and this makes that loud.
-    get db(): Db {
-      throw new Error('createFakeReporting has no database');
-    },
     event(input) {
       const v = eventInputSchema.parse(input);
       id += 1;
@@ -122,7 +116,7 @@ export function createFakeReporting(opts: { site?: string; log?: Logger } = {}):
         return { before, after: settings, by, changed };
       },
     },
-    stats: () => ({ queued: 0, dropped: 0, invalid: 0, flushed: rows.length, failedFlushes: 0 }),
+    stats: () => ({ queued: 0, dropped: 0, invalid: 0, flushed: rows.length }),
     reset() {
       rows.length = 0;
       alerts.length = 0;

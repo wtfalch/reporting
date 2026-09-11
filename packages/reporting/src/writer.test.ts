@@ -73,7 +73,7 @@ describe('event()', () => {
     const r = createReporting({ db, log, site: 'test', mode: 'test', defer: () => {} });
     r.event({ kind: 'a.b', message: 'x' });
     await expect(r.flush()).resolves.toBeUndefined();
-    expect(r.stats()).toMatchObject({ queued: 1, flushed: 0, failedFlushes: 1 });
+    expect(r.stats()).toMatchObject({ queued: 1, flushed: 0 });
     expect(log.lines.at(-1)?.msg).toMatch(/flush failed/);
   });
 
@@ -133,6 +133,24 @@ describe('event()', () => {
     expect(log.lines.some((l) => /defer threw/.test(l.msg ?? ''))).toBe(true);
     await r.flush();
     expect(inserted).toHaveLength(1);
+  });
+
+  it('narrows a host principal to class and id, dropping a display name or address', async () => {
+    const { db, inserted } = fakeDb();
+    const r = createReporting({
+      db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: () => {},
+    });
+    const principal = { class: 'human', id: 'u1', display: 'Ada', email: 'ada@example.test' };
+    r.event({ kind: 'a.b', message: 'x', actor: principal as { class: 'human'; id: string } });
+    await r.flush();
+    const row = inserted[0]?.[0] as Record<string, unknown>;
+    expect(row).toMatchObject({ actorClass: 'human', actorId: 'u1' });
+    expect(JSON.stringify(row)).not.toContain('ada@example.test');
+    expect(JSON.stringify(row)).not.toContain('Ada');
   });
 
   it('stamps the site and the actor, never a bare id', async () => {

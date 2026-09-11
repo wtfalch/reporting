@@ -84,7 +84,6 @@ export interface Stats {
   readonly dropped: number;
   readonly invalid: number;
   readonly flushed: number;
-  readonly failedFlushes: number;
 }
 
 export interface Reporting {
@@ -101,7 +100,6 @@ export interface Reporting {
   };
   readonly tables: typeof tables;
   readonly site: string;
-  readonly db: Db;
   readonly log: Logger;
   stats(): Stats;
 }

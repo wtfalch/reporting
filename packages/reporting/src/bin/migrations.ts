@@ -13,12 +13,7 @@ import { copyMigrations, describeCopy } from './copy.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const from = join(here, '..', 'migrations');
 const to = resolve(process.cwd(), process.argv[2] ?? 'drizzle');
-let version: string | undefined;
-try {
-  version = (
-    JSON.parse(readFileSync(join(here, '..', '..', 'package.json'), 'utf8')) as { version?: string }
-  ).version;
-} catch {
-  version = undefined;
-}
+const { version } = JSON.parse(readFileSync(join(here, '..', '..', 'package.json'), 'utf8')) as {
+  version: string;
+};
 console.log(describeCopy(copyMigrations({ from, to, version })));

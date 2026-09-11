@@ -48,7 +48,9 @@ create table if not exists reporting_events (
   -- provider response or a request body sneaks in whole. `strict`, because
   -- lax mode unwraps an array before the filter sees it and would never
   -- call one an array.
-  constraint reporting_events_data_flat_check check (not jsonb_path_exists(data, 'strict $.* ? (@.type() == "object" || @.type() == "array")')),
+  -- `silent`, so a non-object `data` fails the object check by name rather
+  -- than raising 22033 from this one, whichever the planner evaluates first.
+  constraint reporting_events_data_flat_check check (not jsonb_path_exists(data, 'strict $.* ? (@.type() == "object" || @.type() == "array")', '{}', true)),
   -- The keys that carry a person or a secret by name. A guardrail, not a
   -- proof: src/schema.ts refuses the same list before a row is queued, and
   -- schema.test.ts pins the two lists equal.
@@ -86,9 +88,6 @@ create table if not exists reporting_tasks (
   claim_token       uuid,
   last_outcome      text,
   last_error        text,
-  -- Free for a task's own bookkeeping: the analytics rollup keeps its
-  -- completed-day watermark here.
-  watermark         text,
   constraint reporting_tasks_task_check check (task ~ '^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$'),
   constraint reporting_tasks_outcome_check check (last_outcome is null or last_outcome in ('ok', 'error', 'skipped')),
   constraint reporting_tasks_error_check check (last_error is null or length(last_error) <= 512)
