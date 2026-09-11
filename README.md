@@ -23,5 +23,7 @@ two-connection cases run too; the database's public schema is dropped first.
 Publishing is a tag. Bump the version in `packages/reporting/package.json`,
 merge it, then push `v<version>`: `.github/workflows/release.yml` runs the
 same gates CI runs, refuses a tag that disagrees with `package.json`, and
-publishes with provenance when the repository has an `NPM_TOKEN` secret.
-Check npm for the new version rather than the run's colour.
+publishes with provenance through npm trusted publishing (OIDC), so the
+repository holds no npm token. The first version, 0.1.0, went out from a
+laptop because a package has to exist before npm can trust a publisher for
+it.
