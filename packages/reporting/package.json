@@ -1,0 +1,71 @@
+{
+  "name": "@wtfalch/reporting",
+  "version": "0.1.0",
+  "description": "The estate's operational event log and housekeeping tick: a writer that never fails a request, a claim protocol that needs no scheduler, and the readers an operator opens. Per-app Postgres, host-supplied logger, framework-neutral core with a Next entry.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wtfalch/reporting",
+    "directory": "packages/reporting"
+  },
+  "license": "MIT",
+  "type": "module",
+  "files": ["dist"],
+  "bin": {
+    "reporting-migrations": "./dist/bin/migrations.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./housekeeping": {
+      "types": "./dist/housekeeping/index.d.ts",
+      "default": "./dist/housekeeping/index.js"
+    },
+    "./next": {
+      "types": "./dist/next/index.d.ts",
+      "default": "./dist/next/index.js"
+    },
+    "./fake": {
+      "types": "./dist/fake/index.d.ts",
+      "default": "./dist/fake/index.js"
+    },
+    "./migrations/*.sql": "./dist/migrations/*.sql",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/migrations && cp src/migrations/*.sql dist/migrations/",
+    "prepack": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "drizzle-orm": ">=0.39.0",
+    "next": ">=16.0.0",
+    "zod": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/node": "^22",
+    "drizzle-orm": "^0.39.3",
+    "next": "^16.2.4",
+    "postgres": "^3.4.5",
+    "react": "^19",
+    "react-dom": "^19",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.6",
+    "zod": "^4.5.4"
+  }
+}

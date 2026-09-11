@@ -1,0 +1,65 @@
+name: Release
+
+# A tag publishes. Publishing was a manual `pnpm publish` from a tagged main
+# from the start here; this package will have
+# many more releases than that is worth, and a release that fails should be
+# red in Actions rather than a tarball that never appeared.
+#
+# Nothing here deploys anything. It runs the same gates CI runs, then hands
+# the built package to npm with provenance, which ties the published tarball
+# to this commit and this workflow rather than to whoever held a token.
+#
+# Modelled on wtfalch/design's release.yml, including the two bugs that one
+# already paid for: the job-level env below, and the tag-versus-package check.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write   # provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Job-level on purpose: a step's `if` cannot see that step's own `env`, so
+    # a step-level token gate reads an empty string on every tag and skips the
+    # publish while the run goes green. design's v0.3.2 was the tag that
+    # showed it; this file starts on the fixed side of that.
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      # The same check CI runs: the tarball is dist and nothing else. A
+      # release is the one moment that matters, so it is asked here too.
+      - name: the tarball holds dist and nothing else
+        run: pnpm --filter @wtfalch/reporting exec npm pack --dry-run
+      # The tag is the version. A tag that disagrees with package.json is a
+      # release of the wrong thing, and this is where it stops.
+      - name: tag matches package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./packages/reporting/package.json').version")"
+          [ "$TAG" = "$PKG" ] || { echo "tag v$TAG != package $PKG"; exit 1; }
+      # No token, no publish — and no red run. The first two versions went out
+      # from a laptop, and a tag pushed before the repository has NPM_TOKEN
+      # should record the release without failing on a step it was never
+      # going to take. Check npm for the version, never the run's colour.
+      - name: publish, if there is a token
+        if: env.NODE_AUTH_TOKEN != ''
+        run: pnpm --filter @wtfalch/reporting publish --access public --provenance --no-git-checks
+      - name: not published
+        if: env.NODE_AUTH_TOKEN == ''
+        run: echo "NPM_TOKEN is not set on this repository; gates passed, nothing published."

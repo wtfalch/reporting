@@ -1,0 +1,26 @@
+name: CI
+
+# Publishing is release.yml, on a `v*` tag; this only checks.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: the tarball holds dist and nothing else
+        run: pnpm --filter @wtfalch/reporting exec npm pack --dry-run
