@@ -1,4 +1,7 @@
 import { alertRow } from './alerts.js';
+import { analyticsRecent, analyticsSeries, analyticsWeekly } from './analytics/reader.js';
+import { ANALYTICS_NAME_PATTERN, normalisePath, propsSchema } from './analytics/schema.js';
+import { insertAnalytics } from './analytics/write.js';
 import { eventsPage } from './reader.js';
 import { siteSchema } from './schema.js';
 import { getSettings, setSettings } from './settings.js';
@@ -10,7 +13,22 @@ export * from './schema.js';
 export * from './tables.js';
 export * from './types.js';
 export { alertKind, projectDetail } from './alerts.js';
-export { DEFAULT_SETTINGS, RETENTION_BOUNDS } from './settings.js';
+export { CONSENT_MODES, DEFAULT_SETTINGS, RETENTION_BOUNDS } from './settings.js';
+export * from './analytics/schema.js';
+export { createCollector, type CollectorOptions, type Sites } from './analytics/collector.js';
+export {
+  analyticsRecent,
+  analyticsSeries,
+  analyticsWeekly,
+  hideSmallGroups,
+  type Grain,
+  type RecentEvent,
+  type RecentOptions,
+  type SeriesOptions,
+  type SeriesPoint,
+  type WeeklyPoint,
+} from './analytics/reader.js';
+export type { AnalyticsRow } from './analytics/write.js';
 
 function modeFromEnv(): Mode {
   const env = process.env.NODE_ENV;
@@ -79,6 +97,40 @@ export function createReporting(options: ReportingOptions): Reporting {
         }
         return change;
       },
+    },
+    analytics: {
+      async track(input) {
+        try {
+          if (!ANALYTICS_NAME_PATTERN.test(input.name)) {
+            throw new Error(`analytics.track: "${input.name}" is not a name`);
+          }
+          const props = propsSchema.parse(input.props ?? {});
+          const at = input.occurredAt ?? now();
+          await insertAnalytics(options.db, [
+            {
+              occurredAt: at,
+              receivedAt: now(),
+              site,
+              tenantId: input.tenantId ?? null,
+              visitorId: input.visitorId ?? null,
+              sessionId: input.sessionId ?? null,
+              userId: input.userId ?? null,
+              name: input.name,
+              path: (options.normalisePath ?? normalisePath)(input.path ?? '/'),
+              referrerHost: null,
+              device: input.device ?? 'unknown',
+              country: input.country ?? null,
+              props,
+            },
+          ]);
+        } catch (error) {
+          if (mode !== 'production') throw error;
+          options.log.error({ err: describe(error), name: input.name }, 'reporting: track failed');
+        }
+      },
+      series: (opts) => analyticsSeries(options.db, opts),
+      weekly: (opts) => analyticsWeekly(options.db, opts),
+      recent: (opts) => analyticsRecent(options.db, opts),
     },
     stats: () => writer.stats(),
   };

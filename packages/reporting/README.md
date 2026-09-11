@@ -134,6 +134,62 @@ registerShutdownFlush(reporting);   // one bounded flush on SIGTERM
 Best effort. The queue is per process and bounded at 1,000; the logger has
 every row regardless.
 
+## Analytics (0.2.0)
+
+Three tables and two writers. `reporting_analytics` holds raw rows for a
+window (`analytics.retention_days`, default 90); `reporting_analytics_daily`
+and `reporting_analytics_weekly` hold counts with no identifier in any column
+and are kept indefinitely. The rollups store distinct visitor and people
+counts at every grain a reader asks for (site, tenant, name, path, device,
+country, referrer) rather than summing finer groups, keep a contiguous
+completed-day watermark in `reporting_tasks`, and pruning never passes what
+they still need.
+
+```ts
+// The collector, a public route: POST and OPTIONS, always 204.
+import { collectHandler } from '@wtfalch/reporting/next';
+const handle = collectHandler({
+  reporting, db,
+  sites: JSON.parse(process.env.REPORTING_SITES ?? '{}'),
+  getUserId: async () => (await getSession())?.user.id ?? null,
+  tenantFor: async (userId, path) => tenantIfMember(userId, path),
+  normalisePath: routePattern,
+});
+export const POST = handle;
+export const OPTIONS = handle;
+
+// The beacon, in the root layout.
+import { ReportingProvider, ConsentControl } from '@wtfalch/reporting/react';
+<ReportingProvider collector="/api/reporting/collect" site="app" consent="consented">
+  {children}
+  <ConsentControl>We count visits. Allow a cookie so we can tell returning visitors apart?</ConsentControl>
+</ReportingProvider>
+
+// Server-side truth, from a Server Action.
+await reporting.analytics.track({ name: 'invoice.approved', userId: access.actor.id, tenantId, path });
+
+// Housekeeping.
+housekeeping.register(rollupAnalytics);
+housekeeping.register(rollupAnalyticsWeekly);
+housekeeping.register(pruneAnalytics);
+```
+
+What the beacon never sends: a user id. Identity is joined server-side from
+the session, for same-origin beacons only; a beacon from an allowed foreign
+origin (`sites`) is recorded with no user and no tenant, whatever cookies it
+carries. Paths are normalised to route patterns before storage
+(`normalisePath`: uuids, numbers, tokens and addresses become placeholders),
+the query string never arrives, the user agent becomes a device class and is
+discarded, and `cf-ipcountry` becomes two letters or nothing.
+
+Consent: `none` stores nothing about the browser; `consented` (the default)
+sets the first-party cookie `_rp` only after `accept()`; `always` sets it
+without asking. `analytics.identify_signed_in` is the one line that turns
+server-side identification off.
+
+Erasure: `reporting_erase_person(subject)` deletes the subject's raw rows;
+the rollups hold nothing to erase. Call it in the host's erasure transaction.
+
 ## Tests
 
 ```ts

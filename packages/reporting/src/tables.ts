@@ -1,9 +1,12 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  date,
   index,
+  integer,
   jsonb,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -64,6 +67,8 @@ export const reportingTasks = pgTable('reporting_tasks', {
   claimToken: uuid('claim_token'),
   lastOutcome: text('last_outcome'),
   lastError: text('last_error'),
+  /** The rollups' completed-history watermark (0002), one value per task. */
+  watermark: text('watermark'),
 });
 
 export const reportingSettings = pgTable('reporting_settings', {
@@ -73,7 +78,106 @@ export const reportingSettings = pgTable('reporting_settings', {
   updatedBy: text('updated_by'),
 });
 
+/** Raw analytics rows, a window's worth; mirrored from migrations/0002_analytics.sql. */
+export const reportingAnalytics = pgTable(
+  'reporting_analytics',
+  {
+    id: bigint('id', { mode: 'number' }).generatedAlwaysAsIdentity().primaryKey(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().default(sql`now()`),
+    site: text('site').notNull(),
+    tenantId: uuid('tenant_id'),
+    visitorId: text('visitor_id'),
+    sessionId: text('session_id'),
+    userId: text('user_id'),
+    name: text('name').notNull(),
+    path: text('path').notNull(),
+    referrerHost: text('referrer_host'),
+    device: text('device').notNull(),
+    country: text('country'),
+    props: jsonb('props')
+      .$type<Record<string, string | number | boolean | null>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    schemaVersion: smallint('schema_version').notNull().default(1),
+  },
+  (t) => [
+    index('reporting_analytics_site_time_idx').on(t.site, t.occurredAt.desc(), t.id.desc()),
+    index('reporting_analytics_tenant_time_idx')
+      .on(t.tenantId, t.occurredAt.desc(), t.id.desc())
+      .where(sql`${t.tenantId} is not null`),
+    index('reporting_analytics_user_idx').on(t.userId).where(sql`${t.userId} is not null`),
+    index('reporting_analytics_site_name_time_idx').on(t.site, t.name, t.occurredAt.desc()),
+  ],
+);
+
+/** One row per day, site, grain and dimension value; written only by reporting_rollup_day. */
+export const reportingAnalyticsDaily = pgTable(
+  'reporting_analytics_daily',
+  {
+    day: date('day').notNull(),
+    site: text('site').notNull(),
+    grain: text('grain').notNull(),
+    tenantId: uuid('tenant_id'),
+    name: text('name'),
+    path: text('path'),
+    device: text('device'),
+    country: text('country'),
+    referrerHost: text('referrer_host'),
+    views: integer('views').notNull(),
+    visitors: integer('visitors').notNull(),
+    people: integer('people').notNull(),
+    tenantKey: text('tenant_key').generatedAlwaysAs(sql`coalesce(tenant_id::text, '')`),
+    nameKey: text('name_key').generatedAlwaysAs(sql`coalesce(name, '')`),
+    pathKey: text('path_key').generatedAlwaysAs(sql`coalesce(path, '')`),
+    deviceKey: text('device_key').generatedAlwaysAs(sql`coalesce(device, '')`),
+    countryKey: text('country_key').generatedAlwaysAs(sql`coalesce(country, '')`),
+    referrerKey: text('referrer_key').generatedAlwaysAs(sql`coalesce(referrer_host, '')`),
+  },
+  (t) => [
+    primaryKey({
+      name: 'reporting_analytics_daily_pkey',
+      columns: [
+        t.day,
+        t.site,
+        t.grain,
+        t.tenantKey,
+        t.nameKey,
+        t.pathKey,
+        t.deviceKey,
+        t.countryKey,
+        t.referrerKey,
+      ],
+    }),
+    index('reporting_analytics_daily_site_grain_idx').on(t.site, t.grain, t.day.desc()),
+  ],
+);
+
+/** Visitors and people per ISO week and how many returned; written only by reporting_rollup_week. */
+export const reportingAnalyticsWeekly = pgTable(
+  'reporting_analytics_weekly',
+  {
+    week: date('week').notNull(),
+    site: text('site').notNull(),
+    tenantId: uuid('tenant_id'),
+    visitors: integer('visitors').notNull(),
+    returningVisitors: integer('returning_visitors').notNull(),
+    people: integer('people').notNull(),
+    returningPeople: integer('returning_people').notNull(),
+    tenantKey: text('tenant_key').generatedAlwaysAs(sql`coalesce(tenant_id::text, '')`),
+  },
+  (t) => [
+    primaryKey({
+      name: 'reporting_analytics_weekly_pkey',
+      columns: [t.week, t.site, t.tenantKey],
+    }),
+  ],
+);
+
 export type ReportingEventRow = typeof reportingEvents.$inferSelect;
+export type ReportingAnalyticsRow = typeof reportingAnalytics.$inferSelect;
+export type ReportingAnalyticsDailyRow = typeof reportingAnalyticsDaily.$inferSelect;
+export type ReportingAnalyticsWeeklyRow = typeof reportingAnalyticsWeekly.$inferSelect;
 export type ReportingTaskRow = typeof reportingTasks.$inferSelect;
 export type ReportingSettingRow = typeof reportingSettings.$inferSelect;
 
@@ -81,4 +185,7 @@ export const tables = {
   events: reportingEvents,
   tasks: reportingTasks,
   settings: reportingSettings,
+  analytics: reportingAnalytics,
+  analyticsDaily: reportingAnalyticsDaily,
+  analyticsWeekly: reportingAnalyticsWeekly,
 };

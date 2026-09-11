@@ -100,4 +100,38 @@ describe.skipIf(!URL_)('the runtime role', () => {
     const db = drizzle(runtime);
     await expect(db.execute('delete from reporting_events' as never)).rejects.toThrow();
   });
+
+  it('analytics: inserts and reads raw rows, reads but never writes the rollups, and runs the four functions', async () => {
+    await runtime.unsafe(
+      "insert into reporting_analytics (occurred_at, site, name, path, device, user_id) values (now(), 'app', 'page.view', '/', 'desktop', 'u1')",
+    );
+    expect((await runtime.unsafe('select count(*)::int as n from reporting_analytics'))[0]?.n).toBe(
+      1,
+    );
+    await expect(runtime.unsafe("update reporting_analytics set path = '/x'")).rejects.toThrow(
+      /permission denied/,
+    );
+    await expect(runtime.unsafe('delete from reporting_analytics')).rejects.toThrow(
+      /permission denied/,
+    );
+    await expect(
+      runtime.unsafe(
+        "insert into reporting_analytics_daily (day, site, grain, views, visitors, people) values (current_date, 'app', 'site', 1, 1, 1)",
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(runtime.unsafe('delete from reporting_analytics_weekly')).rejects.toThrow(
+      /permission denied/,
+    );
+    expect(
+      (await runtime.unsafe('select reporting_rollup_day(current_date) as n'))[0]?.n,
+    ).toBeGreaterThan(0);
+    expect(
+      (await runtime.unsafe('select count(*)::int as n from reporting_analytics_daily'))[0]?.n,
+    ).toBeGreaterThan(0);
+    await runtime.unsafe(`select reporting_rollup_week((date_trunc('week', current_date))::date)`);
+    await expect(
+      runtime.unsafe("select reporting_prune_analytics(interval '7 days', 10, current_date - 100)"),
+    ).rejects.toThrow(/not before the rollups/);
+    expect((await runtime.unsafe("select reporting_erase_person('u1') as n"))[0]?.n).toBe(1);
+  });
 });

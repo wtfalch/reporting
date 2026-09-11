@@ -45,3 +45,26 @@ id. Kept indefinitely; a host may erase `updated_by` on request.
 
 Nothing here decides. The host gates its pages; the package's readers return
 rows as stored.
+
+## Analytics (0.2.0)
+
+**Raw rows** (`reporting_analytics`), kept for `analytics.retention_days`
+(default 90, bounded 7 to 400, never past what the rollups still need): when,
+which site, a route pattern (identifiers replaced by placeholders before
+storage), an event name, the referrer's host, a device class, a country code,
+flat props under 4 KB without personal keys, and three ids: the first-party
+cookie's visitor id when the person consented, a per-tab session id, and the
+signed-in person's issuer id set server-side from the session
+(`analytics.identify_signed_in`, default on). Never an ip address, a user
+agent, an email, a name or a query string.
+
+**Rollups** (`reporting_analytics_daily`, `reporting_analytics_weekly`),
+kept indefinitely: counts per day or week, site, organisation, event name,
+route, device, country and referrer host. No identifier in any column;
+buckets under five distinct visitors render as `(few)` to a customer
+organisation.
+
+**Erasure**: `reporting_erase_person` deletes a person's raw rows; the rollups
+have nothing about them to erase. **Consent**: cookieless by default; the
+cookie `_rp` (one year, SameSite=Lax, Secure) appears only after the person
+accepts, or under the `always` mode a host chooses knowingly.

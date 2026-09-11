@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { headers } from 'next/headers';
 import { unstable_rethrow } from 'next/navigation';
 import { after, connection } from 'next/server';
+import { type CollectorOptions, createCollector } from '../analytics/collector.js';
+import { countryOf, deviceOf } from '../analytics/schema.js';
 import type { Reporting } from '../types.js';
 
 /**
@@ -87,4 +89,32 @@ export function registerShutdownFlush(
   process.once('SIGTERM', () => {
     void reporting.flush({ deadlineMs: opts.deadlineMs ?? 2000 });
   });
+}
+
+/**
+ * The collector as a route handler: mount as `POST` and `OPTIONS` of a public
+ * route (`// authz: public`). Always 204. `getUserId` reads the host's
+ * session for same-origin beacons; a beacon from an allowed foreign origin
+ * never reaches it.
+ */
+export function collectHandler(
+  options: Omit<CollectorOptions, 'log' | 'site'> & { readonly reporting: Reporting },
+): (request: Request) => Promise<Response> {
+  const { reporting, ...rest } = options;
+  const collector = createCollector({ ...rest, log: reporting.log, site: reporting.site });
+  return (request) => collector.handle(request);
+}
+
+/** Device and country for a server-side `track`, from the request's headers; nothing else is kept. */
+export async function trackContext(): Promise<{
+  device: ReturnType<typeof deviceOf>;
+  country: string | null;
+}> {
+  try {
+    const h = await headers();
+    return { device: deviceOf(h.get('user-agent')), country: countryOf(h.get('cf-ipcountry')) };
+  } catch (error) {
+    unstable_rethrow(error);
+    return { device: 'unknown', country: null };
+  }
 }

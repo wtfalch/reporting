@@ -11,24 +11,31 @@ import type { Actor, Db, Settings, SettingsChange } from './types.js';
  */
 
 export const RETENTION_BOUNDS = { min: 7, max: 400 } as const;
+export const CONSENT_MODES = ['none', 'consented', 'always'] as const;
+const retention = z.number().int().min(RETENTION_BOUNDS.min).max(RETENTION_BOUNDS.max);
 
-const DEFS = {
-  'events.retention_days': {
-    schema: z.number().int().min(RETENTION_BOUNDS.min).max(RETENTION_BOUNDS.max),
-    default: 30,
-  },
-} as const satisfies Record<keyof Settings, { schema: z.ZodType<number>; default: number }>;
+const DEFS: { [K in keyof Settings]: { schema: z.ZodType<Settings[K]>; default: Settings[K] } } = {
+  'events.retention_days': { schema: retention, default: 30 },
+  // Ninety, not thirty: behaviour is watched over years through the rollups,
+  // and a dimension they lack is a recompute over this window (D13).
+  'analytics.retention_days': { schema: retention, default: 90 },
+  // Cookieless until the person says otherwise (D15).
+  'analytics.consent': { schema: z.enum(CONSENT_MODES), default: 'consented' },
+  // A signed-in person's rows carry their id, as the product's own record of
+  // serving them; one line to change if advice changes (D15).
+  'analytics.identify_signed_in': { schema: z.boolean(), default: true },
+};
 
-export const DEFAULT_SETTINGS: Settings = Object.freeze({
-  'events.retention_days': DEFS['events.retention_days'].default,
-});
+export const DEFAULT_SETTINGS: Settings = Object.freeze(
+  Object.fromEntries(Object.entries(DEFS).map(([k, d]) => [k, d.default])) as unknown as Settings,
+);
 
 function fromRows(rows: { key: string; value: unknown }[]): Settings {
-  const out: Record<string, number> = { ...DEFAULT_SETTINGS };
+  const out: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const row of rows) {
     const def = DEFS[row.key as keyof Settings];
     if (!def) continue;
-    const parsed = def.schema.safeParse(row.value);
+    const parsed = (def.schema as z.ZodType<unknown>).safeParse(row.value);
     if (parsed.success) out[row.key] = parsed.data;
   }
   return out as unknown as Settings;
@@ -51,10 +58,12 @@ export async function setSettings(
   for (const [key, value] of entries) {
     const def = DEFS[key];
     if (!def) throw new Error(`reporting.settings: unknown key "${key}"`);
-    const parsed = def.schema.safeParse(value);
+    const parsed = (def.schema as z.ZodType<unknown>).safeParse(value);
     if (!parsed.success) {
       throw new Error(
-        `reporting.settings: ${key} must be an integer between ${RETENTION_BOUNDS.min} and ${RETENTION_BOUNDS.max}`,
+        key.endsWith('retention_days')
+          ? `reporting.settings: ${key} must be an integer between ${RETENTION_BOUNDS.min} and ${RETENTION_BOUNDS.max}`
+          : `reporting.settings: ${key} is not a valid value`,
       );
     }
   }

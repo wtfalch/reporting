@@ -213,11 +213,11 @@ describe('the writer against the table', () => {
       mode: 'test',
       defer: () => {},
     });
-    expect(await r.settings.get()).toEqual({ 'events.retention_days': 30 });
+    expect(await r.settings.get()).toMatchObject({ 'events.retention_days': 30 });
     const by = { class: 'human' as const, id: 'op1' };
     const change = await r.settings.set({ 'events.retention_days': 45 }, by);
     expect(change.changed).toEqual(['events.retention_days']);
-    expect(await r.settings.get()).toEqual({ 'events.retention_days': 45 });
+    expect(await r.settings.get()).toMatchObject({ 'events.retention_days': 45 });
     await expect(r.settings.set({ 'events.retention_days': 3 }, by)).rejects.toThrow(
       /between 7 and 400/,
     );

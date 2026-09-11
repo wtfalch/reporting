@@ -10,7 +10,9 @@ import type { Db } from '../types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS = join(here, '..', 'migrations');
-export const MIGRATION_SQL = readFileSync(join(MIGRATIONS, '0001_reporting.sql'), 'utf8');
+export const MIGRATION_SQL = ['0001_reporting.sql', '0002_analytics.sql']
+  .map((f) => readFileSync(join(MIGRATIONS, f), 'utf8'))
+  .join('\n');
 
 export interface TestDb {
   db: Db;

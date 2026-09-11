@@ -47,6 +47,10 @@ export interface TaskContext {
   renew(): Promise<boolean>;
   /** The run must finish, or stop scheduling work, by this instant. */
   readonly deadline: Date;
+  /** The task's completed-history watermark as claimed, or null. */
+  readonly watermark: string | null;
+  /** Moves the watermark, fenced by the claim token; false when the lease was lost. Pass a transaction to commit it with the work it vouches for. */
+  commitWatermark(value: string, tx?: Db): Promise<boolean>;
 }
 
 export interface HousekeepingOptions {
@@ -100,7 +104,7 @@ export function createHousekeeping(options: HousekeepingOptions): Housekeeping {
   }
 
   /** The one transaction that decides. Returns the token when this process now holds the task. */
-  async function claim(task: Task): Promise<string | null> {
+  async function claim(task: Task): Promise<{ token: string; watermark: string | null } | null> {
     return db.transaction(async (tx) => {
       const held = await tx
         .select({ task: reportingTasks.task })
@@ -122,9 +126,23 @@ export function createHousekeeping(options: HousekeepingOptions): Housekeeping {
             and ${reportingTasks.nextDueAt} <= now()
             and (${reportingTasks.leaseExpiresAt} is null or ${reportingTasks.leaseExpiresAt} < now())`,
         )
-        .returning({ token: reportingTasks.claimToken });
-      return claimed[0]?.token ?? null;
+        .returning({ token: reportingTasks.claimToken, watermark: reportingTasks.watermark });
+      const row = claimed[0];
+      return row?.token ? { token: row.token, watermark: row.watermark ?? null } : null;
     });
+  }
+  async function commitWatermark(
+    task: Task,
+    token: string,
+    value: string,
+    handle: Db,
+  ): Promise<boolean> {
+    const rows = await handle
+      .update(reportingTasks)
+      .set({ watermark: value })
+      .where(sql`${reportingTasks.task} = ${task.name} and ${reportingTasks.claimToken} = ${token}`)
+      .returning({ task: reportingTasks.task });
+    return rows.length === 1;
   }
 
   async function renew(task: Task, token: string): Promise<boolean> {
@@ -159,7 +177,12 @@ export function createHousekeeping(options: HousekeepingOptions): Housekeeping {
       );
   }
 
-  async function runClaimed(task: Task, token: string, settings: Settings): Promise<Outcome> {
+  async function runClaimed(
+    task: Task,
+    token: string,
+    watermark: string | null,
+    settings: Settings,
+  ): Promise<Outcome> {
     const started = now();
     const deadline = new Date(started.getTime() + task.lease);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -176,6 +199,8 @@ export function createHousekeeping(options: HousekeepingOptions): Housekeeping {
           now,
           renew: () => renew(task, token),
           deadline,
+          watermark,
+          commitWatermark: (value, tx) => commitWatermark(task, token, value, tx ?? db),
         }),
         timeout,
       ]);
@@ -202,9 +227,9 @@ export function createHousekeeping(options: HousekeepingOptions): Housekeeping {
   }
 
   async function runOne(task: Task, settings: Settings): Promise<Outcome> {
-    const token = await claim(task);
-    if (!token) return 'skipped';
-    return runClaimed(task, token, settings);
+    const claimed = await claim(task);
+    if (!claimed) return 'skipped';
+    return runClaimed(task, claimed.token, claimed.watermark, settings);
   }
 
   async function tickNow(): Promise<void> {
@@ -274,3 +299,4 @@ export function createHousekeeping(options: HousekeepingOptions): Housekeeping {
 }
 
 export { pruneEvents, retentionLag } from './tasks.js';
+export { pruneAnalytics, rollupAnalytics, rollupAnalyticsWeekly } from '../analytics/tasks.js';
