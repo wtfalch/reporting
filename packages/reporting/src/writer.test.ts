@@ -150,6 +150,56 @@ describe('event()', () => {
   });
 });
 
+describe('flush() with overlapping callers', () => {
+  it('returns only when every row is in the table, including rows another flush took off the queue', async () => {
+    // A slow insert, so the two flushes overlap the way the timer's and a
+    // request's do: the first splices the queue and waits on the database;
+    // a second row arrives; the second caller must not return until both
+    // inserts have landed.
+    const inserted: unknown[][] = [];
+    // A holder rather than a `let`, because TypeScript narrows a `let` to its
+    // initialiser across the closure and calls the release "not callable".
+    const gate: { release?: () => void } = {};
+    const db = {
+      insert: () => ({
+        values: (rows: unknown[]) =>
+          new Promise<void>((resolve) => {
+            gate.release = () => {
+              inserted.push(rows);
+              resolve();
+            };
+          }),
+      }),
+    } as unknown as Db;
+    const r = createReporting({
+      db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: () => {},
+    });
+    r.event({ kind: 'a.b', message: 'first' });
+    const first = r.flush();
+    await Promise.resolve();
+    r.event({ kind: 'a.b', message: 'second' });
+    let secondDone = false;
+    const second = r.flush().then(() => {
+      secondDone = true;
+    });
+    await Promise.resolve();
+    expect(secondDone).toBe(false);
+    // Land the first insert; the second flush must go on to insert the row
+    // the first one did not carry, and only then resolve.
+    gate.release?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(secondDone).toBe(false);
+    gate.release?.();
+    await Promise.all([first, second]);
+    expect(inserted.flat()).toHaveLength(2);
+    expect(r.stats()).toMatchObject({ queued: 0, flushed: 2 });
+  });
+});
+
 describe('alert()', () => {
   it('writes an alert row and calls onAlert, swallowing its throw', async () => {
     const log = memoryLog();

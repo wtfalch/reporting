@@ -1,6 +1,6 @@
 {
   "name": "@wtfalch/reporting",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The estate's operational event log and housekeeping tick: a writer that never fails a request, a claim protocol that needs no scheduler, and the readers an operator opens. Per-app Postgres, host-supplied logger, framework-neutral core with a Next entry.",
   "repository": {
     "type": "git",

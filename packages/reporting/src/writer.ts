@@ -35,7 +35,7 @@ export interface WriterOptions {
 
 export class Writer {
   private readonly queue: Row[] = [];
-  private inFlight: Promise<void> | null = null;
+  private inFlight: Promise<boolean> | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private deferred = false;
   private dropped = 0;
@@ -135,25 +135,39 @@ export class Writer {
     }
   }
 
-  /** Drain until empty or the deadline. One flush in flight at a time; a second call waits on the first. */
+  /**
+   * Drain until the queue is empty and nothing is in flight, or the deadline.
+   * Two callers overlap all the time (the timer and a request's `after()`,
+   * the tick and its own timer), so "empty" is not enough: a row another
+   * flush spliced off the queue a moment ago is still on its way, and a
+   * caller that returned on an empty queue would read the table too early.
+   * Every caller therefore waits for whatever is in flight and looks again.
+   */
   async flush(opts: { deadlineMs?: number } = {}): Promise<void> {
     const deadline = Date.now() + (opts.deadlineMs ?? 5000);
-    if (this.inFlight) await this.inFlight;
-    while (this.queue.length > 0 && Date.now() < deadline) {
-      this.inFlight = this.flushOnce();
-      try {
+    while (Date.now() < deadline) {
+      if (this.inFlight) {
         await this.inFlight;
-      } finally {
-        this.inFlight = null;
+        continue;
       }
-      if (this.failedFlushes > 0 && this.queue.length > 0 && this.lastFailed) break;
+      if (this.queue.length === 0) break;
+      const attempt = this.flushOnce();
+      this.inFlight = attempt;
+      let ok = false;
+      try {
+        ok = await attempt;
+      } finally {
+        if (this.inFlight === attempt) this.inFlight = null;
+      }
+      // A failed insert leaves its rows queued; do not spin on the database
+      // inside one call. The timer and the next defer try again.
+      if (!ok) break;
     }
     this.deferred = false;
   }
 
-  private lastFailed = false;
-
-  private async flushOnce(): Promise<void> {
+  /** One insert of one batch. Resolves true on success; never throws. */
+  private async flushOnce(): Promise<boolean> {
     const batch = this.queue.splice(0, this.o.batchSize);
     if (this.droppedSinceReport > 0) {
       const count = this.droppedSinceReport;
@@ -174,10 +188,9 @@ export class Writer {
     try {
       await this.o.db.insert(reportingEvents).values(batch);
       this.flushed += batch.length;
-      this.lastFailed = false;
+      return true;
     } catch (error) {
       this.failedFlushes += 1;
-      this.lastFailed = true;
       // Back at the front, so order survives; the bound still applies, and
       // whatever does not fit is counted as dropped rather than kept for ever.
       const room = Math.max(0, this.o.queueLimit - this.queue.length);
@@ -189,6 +202,7 @@ export class Writer {
         { err: describe(error), rows: batch.length, queued: this.queue.length },
         'reporting: flush failed; rows stay queued',
       );
+      return false;
     }
   }
 
