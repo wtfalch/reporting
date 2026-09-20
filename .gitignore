@@ -2,3 +2,4 @@ node_modules
 dist
 .pnpm-store
 *.tgz
+.claude/campaign/

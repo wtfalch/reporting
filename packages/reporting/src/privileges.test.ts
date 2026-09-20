@@ -134,4 +134,19 @@ describe.skipIf(!URL_)('the runtime role', () => {
     ).rejects.toThrow(/not before the rollups/);
     expect((await runtime.unsafe("select reporting_erase_person('u1') as n"))[0]?.n).toBe(1);
   });
+
+  it('errors: can select, insert and update, cannot delete or truncate', async () => {
+    const fp = '0'.repeat(32);
+    await runtime.unsafe(
+      `insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at) values ('${fp}', 'test', 'TypeError', 'boom', 'server', now(), now())`,
+    );
+    expect((await runtime.unsafe('select count(*)::int as n from reporting_errors'))[0]?.n).toBe(1);
+    await runtime.unsafe(
+      `update reporting_errors set state = 'resolved', resolved_at = now(), resolved_by = 'op1' where fingerprint = '${fp}'`,
+    );
+    await expect(runtime.unsafe('delete from reporting_errors')).rejects.toThrow(
+      /permission denied/,
+    );
+    await expect(runtime.unsafe('truncate reporting_errors')).rejects.toThrow(/permission denied/);
+  });
 });

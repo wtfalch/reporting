@@ -2,6 +2,7 @@ import { alertRow } from './alerts.js';
 import { analyticsRecent, analyticsSeries, analyticsWeekly } from './analytics/reader.js';
 import { ANALYTICS_NAME_PATTERN, normalisePath, propsSchema } from './analytics/schema.js';
 import { insertAnalytics } from './analytics/write.js';
+import { createCapture } from './errors/capture.js';
 import { eventsPage } from './reader.js';
 import { siteSchema } from './schema.js';
 import { getSettings, setSettings } from './settings.js';
@@ -45,20 +46,32 @@ export function createReporting(options: ReportingOptions): Reporting {
   const site = siteSchema.parse(options.site);
   const now = options.now ?? (() => new Date());
   const mode = options.mode ?? modeFromEnv();
+  const defer: (fn: () => Promise<void>) => void =
+    options.defer ??
+    ((fn) => {
+      setTimeout(() => void fn(), 0);
+    });
   const writer = new Writer({
     db: options.db,
     log: options.log,
     site,
     mode,
     now,
-    defer:
-      options.defer ??
-      ((fn) => {
-        setTimeout(() => void fn(), 0);
-      }),
+    defer,
     queueLimit: options.queueLimit ?? 1000,
     batchSize: options.batchSize ?? 500,
     flushEveryMs: options.flushEveryMs ?? 1000,
+  });
+  // Same db, log, defer, now and site as the writer: one instance, one
+  // upsert path, no second connection or timer to keep in sync.
+  const capture = createCapture({
+    db: options.db,
+    log: options.log,
+    site,
+    now,
+    defer,
+    event: (input) => writer.event(input),
+    release: process.env.REPORTING_RELEASE ?? null,
   });
 
   const reporting: Reporting = {
@@ -66,6 +79,7 @@ export function createReporting(options: ReportingOptions): Reporting {
     log: options.log,
     tables,
     event: (input) => writer.event(input),
+    captureError: (error, context) => capture(error, context),
     alert(finding: AlertFinding) {
       writer.event(alertRow(finding));
       if (!options.onAlert) return;

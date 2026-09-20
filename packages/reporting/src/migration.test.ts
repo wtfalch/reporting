@@ -83,6 +83,78 @@ describe('0001_reporting.sql', () => {
   });
 });
 
+describe('0003_errors.sql', () => {
+  const fp = (n: number) => n.toString(16).padStart(32, '0');
+  const errBase =
+    'insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at) values';
+
+  it('applies twice without complaint', async () => {
+    await t.exec(MIGRATION_SQL);
+  });
+
+  it('accepts a minimal row and defaults occurrences and state', async () => {
+    await t.exec(`${errBase} ('${fp(0)}', 'test', 'TypeError', 'boom', 'server', now(), now())`);
+    const rows = await t.query(
+      `select occurrences, state from reporting_errors where fingerprint = '${fp(0)}'`,
+    );
+    expect(Number(rows[0]?.occurrences)).toBe(1);
+    expect(rows[0]?.state).toBe('open');
+  });
+
+  it.each([
+    [
+      'an upper-case fingerprint',
+      `${errBase} ('${fp(0xabc).toUpperCase()}', 'test', 'TypeError', 'boom', 'server', now(), now())`,
+    ],
+    [
+      'a fingerprint the wrong length',
+      `${errBase} ('abc', 'test', 'TypeError', 'boom', 'server', now(), now())`,
+    ],
+    [
+      'an upper-case site',
+      `${errBase} ('${fp(3)}', 'Test', 'TypeError', 'boom', 'server', now(), now())`,
+    ],
+    [
+      'an empty message',
+      `${errBase} ('${fp(4)}', 'test', 'TypeError', '', 'server', now(), now())`,
+    ],
+    [
+      'a message over 512',
+      `${errBase} ('${fp(5)}', 'test', 'TypeError', repeat('x', 513), 'server', now(), now())`,
+    ],
+    [
+      'a stack over 16384',
+      `insert into reporting_errors (fingerprint, site, kind, message, stack, runtime, first_seen_at, last_seen_at) values ('${fp(6)}', 'test', 'TypeError', 'boom', repeat('x', 16385), 'server', now(), now())`,
+    ],
+    [
+      'a runtime outside the three',
+      `${errBase} ('${fp(7)}', 'test', 'TypeError', 'boom', 'client', now(), now())`,
+    ],
+    [
+      'a state outside the three',
+      `insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at, state) values ('${fp(8)}', 'test', 'TypeError', 'boom', 'server', now(), now(), 'archived')`,
+    ],
+    [
+      'occurrences not positive',
+      `insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at, occurrences) values ('${fp(9)}', 'test', 'TypeError', 'boom', 'server', now(), now(), 0)`,
+    ],
+    [
+      'last_seen_at before first_seen_at',
+      `${errBase} ('${fp(10)}', 'test', 'TypeError', 'boom', 'server', now(), now() - interval '1 day')`,
+    ],
+    [
+      'resolved_at without resolved_by',
+      `insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at, resolved_at) values ('${fp(11)}', 'test', 'TypeError', 'boom', 'server', now(), now(), now())`,
+    ],
+    [
+      'resolved_by without resolved_at',
+      `insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at, resolved_by) values ('${fp(12)}', 'test', 'TypeError', 'boom', 'server', now(), now(), 'op1')`,
+    ],
+  ])('refuses %s', async (_name, statement) => {
+    await expect(t.exec(statement)).rejects.toThrow();
+  });
+});
+
 describe('reporting_prune_events', () => {
   async function seed(daysAgo: number, message: string) {
     await t.exec(`${base} ('info', 'a.b', 'test', '${message}')`.replace('values', 'values'));

@@ -1,4 +1,5 @@
 import { alertRow } from '../alerts.js';
+import { createCapture } from '../errors/capture.js';
 import { eventInputSchema } from '../schema.js';
 import { DEFAULT_SETTINGS, RETENTION_BOUNDS } from '../settings.js';
 import type { ReportingEventRow } from '../tables.js';
@@ -6,6 +7,7 @@ import { tables } from '../tables.js';
 import type {
   Actor,
   AlertFinding,
+  Db,
   EventsPageOptions,
   Logger,
   Reporting,
@@ -37,6 +39,16 @@ export function createFakeReporting(opts: { site?: string; log?: Logger } = {}):
   const tracked: (TrackInput & { site: string })[] = [];
   let settings: Settings = { ...DEFAULT_SETTINGS };
   let id = 0;
+  // No group table to fake, so the upsert never runs (`defer` is a no-op);
+  // the timeline row through `fake.event` is what a host's test asserts on.
+  const capture = createCapture({
+    db: undefined as unknown as Db,
+    log,
+    site,
+    now: () => new Date(),
+    defer: () => {},
+    event: (input) => fake.event(input),
+  });
 
   const fake: FakeReporting = {
     site,
@@ -70,6 +82,7 @@ export function createFakeReporting(opts: { site?: string; log?: Logger } = {}):
       fake.event(alertRow(finding));
       alerts.push(finding);
     },
+    captureError: (error, context) => capture(error, context),
     async flush() {},
     events: {
       async page(o: EventsPageOptions = {}) {

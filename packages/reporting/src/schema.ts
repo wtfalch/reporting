@@ -13,9 +13,17 @@ export type Level = (typeof LEVELS)[number];
 export const ACTOR_CLASSES = ['human', 'api_key', 'agent', 'service'] as const;
 export type ActorClass = (typeof ACTOR_CLASSES)[number];
 
+export const ERROR_STATES = ['open', 'resolved', 'ignored'] as const;
+export type ErrorState = (typeof ERROR_STATES)[number];
+
+export const ERROR_RUNTIMES = ['server', 'edge', 'browser'] as const;
+export type ErrorRuntime = (typeof ERROR_RUNTIMES)[number];
+
 /** `namespace.name`: one dot, lower case, digits and underscores. */
 export const KIND_PATTERN = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/;
 export const SITE_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
+/** sha256 of the kind and the top normalised frames, truncated to 32 hex, lower case. */
+export const FINGERPRINT_PATTERN = /^[0-9a-f]{32}$/;
 
 /**
  * Keys a `data` object may not carry, because each names a person or a
@@ -42,6 +50,7 @@ export const LIMITS = {
   targetId: 256,
   dataBytes: 16384,
   site: 64,
+  stack: 16384,
 } as const;
 
 const scalar = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -104,3 +113,7 @@ export type ValidEvent = z.output<typeof eventInputSchema>;
 export const siteSchema = z
   .string()
   .regex(SITE_PATTERN, 'a site id is lower case, digits and dashes');
+
+export const fingerprintSchema = z
+  .string()
+  .regex(FINGERPRINT_PATTERN, 'a fingerprint is 32 lower-case hex characters');
