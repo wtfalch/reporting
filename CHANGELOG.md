@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 — 2026-09-20
+
+- `./browser`: `beacon.captureError(error, kind?)`. 0.3.0 captured only what
+  the browser threw at `window`, and a React error boundary swallows the throw
+  before `window.onerror` can see it -- which is the case `error.tsx` exists
+  for, and the one thing `Sentry.captureException` was doing in a client
+  component. Same de-duplication and the same per-page caps as a thrown error;
+  a no-op when `errors` is off.
+
 ## 0.3.0 — 2026-09-20
 
 The error record (docs/plans/errors.md). Sentry leaves the estate; this is the

@@ -50,6 +50,14 @@ export interface Beacon {
   decline(): void;
   answer(): ConsentAnswer;
   visitorId(): string | null;
+  /**
+   * Report an error the browser never threw at `window` -- the one a React
+   * error boundary caught, which is swallowed before `window.onerror` can
+   * see it, and is exactly the case `error.tsx` exists for. Subject to the
+   * same de-duplication and the same per-page caps as a thrown one; a no-op
+   * when `errors` is off.
+   */
+  captureError(error: unknown, kind?: string): void;
   flush(): void;
   destroy(): void;
 }
@@ -172,6 +180,7 @@ export function createBeacon(options: BeaconOptions): Beacon {
   const ERROR_DISTINCT_MAX = 5;
   const ERROR_TOTAL_MAX = 20;
   let errCleanup: (() => void) | null = null;
+  let recordError: ((error: unknown, kind?: string) => void) | null = null;
   if (options.errors && options.errorCollector) {
     const errorCollector = options.errorCollector;
     const seen = new Map<string, number>();
@@ -249,6 +258,10 @@ export function createBeacon(options: BeaconOptions): Beacon {
         return { kind: fallbackKind, message: fallbackKind, stack: null };
       }
     }
+    recordError = (error: unknown, kind?: string) => {
+      const info = describeReason(error, kind ?? 'Error');
+      record(info.kind, info.message, info.stack);
+    };
     const onError = (event: ErrorEvent) => {
       // A cross-origin script with no CORS grant reports exactly this
       // message, with no line, column or Error object: nothing here is
@@ -346,6 +359,7 @@ export function createBeacon(options: BeaconOptions): Beacon {
     },
     answer: () => answer,
     visitorId: () => (declined() ? null : (cookie?.id ?? null)),
+    captureError: (error, kind) => recordError?.(error, kind),
     flush,
     destroy() {
       flush();
