@@ -1,3 +1,4 @@
+import { Buckets } from '../ingest-limit.js';
 import type { Db, Logger } from '../types.js';
 import {
   ANALYTICS_LIMITS,
@@ -40,29 +41,6 @@ export interface CollectorOptions {
   readonly now?: () => Date;
   /** Events per minute per visitor and per client ip. Default 600. */
   readonly ratePerMinute?: number;
-}
-
-/** A per-process token bucket, enough to bound abuse, never to meter. */
-class Buckets {
-  private readonly buckets = new Map<string, { tokens: number; at: number }>();
-  constructor(
-    private readonly perMinute: number,
-    private readonly now: () => Date,
-  ) {}
-  take(key: string, n: number): boolean {
-    const t = this.now().getTime();
-    const b = this.buckets.get(key) ?? { tokens: this.perMinute, at: t };
-    b.tokens = Math.min(this.perMinute, b.tokens + ((t - b.at) / 60_000) * this.perMinute);
-    b.at = t;
-    if (b.tokens < n) {
-      this.buckets.set(key, b);
-      return false;
-    }
-    b.tokens -= n;
-    this.buckets.set(key, b);
-    if (this.buckets.size > 10_000) this.buckets.clear();
-    return true;
-  }
 }
 
 const NO_CONTENT = () => new Response(null, { status: 204 });

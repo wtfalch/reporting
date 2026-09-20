@@ -174,12 +174,41 @@ export const reportingAnalyticsWeekly = pgTable(
   ],
 );
 
+/** One row per fingerprint; mirrored from migrations/0003_errors.sql. */
+export const reportingErrors = pgTable(
+  'reporting_errors',
+  {
+    fingerprint: text('fingerprint').primaryKey(),
+    site: text('site').notNull(),
+    kind: text('kind').notNull(),
+    message: text('message').notNull(),
+    stack: text('stack'),
+    runtime: text('runtime').notNull(),
+    release: text('release'),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+    occurrences: bigint('occurrences', { mode: 'number' }).notNull().default(1),
+    state: text('state').notNull().default('open'),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolvedBy: text('resolved_by'),
+    tenantId: uuid('tenant_id'),
+    requestId: text('request_id'),
+  },
+  (t) => [
+    index('reporting_errors_site_open_idx')
+      .on(t.site, t.lastSeenAt.desc())
+      .where(sql`${t.state} = 'open'`),
+    index('reporting_errors_state_idx').on(t.state, t.lastSeenAt.desc()),
+  ],
+);
+
 export type ReportingEventRow = typeof reportingEvents.$inferSelect;
 export type ReportingAnalyticsRow = typeof reportingAnalytics.$inferSelect;
 export type ReportingAnalyticsDailyRow = typeof reportingAnalyticsDaily.$inferSelect;
 export type ReportingAnalyticsWeeklyRow = typeof reportingAnalyticsWeekly.$inferSelect;
 export type ReportingTaskRow = typeof reportingTasks.$inferSelect;
 export type ReportingSettingRow = typeof reportingSettings.$inferSelect;
+export type ReportingErrorRow = typeof reportingErrors.$inferSelect;
 
 export const tables = {
   events: reportingEvents,
@@ -188,4 +217,5 @@ export const tables = {
   analytics: reportingAnalytics,
   analyticsDaily: reportingAnalyticsDaily,
   analyticsWeekly: reportingAnalyticsWeekly,
+  errors: reportingErrors,
 };

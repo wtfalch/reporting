@@ -7,8 +7,8 @@ import type {
   WeeklyPoint,
 } from './analytics/reader.js';
 import type { Device } from './analytics/schema.js';
-import type { Actor, EventInput, FlatData, Level } from './schema.js';
-import type { ReportingEventRow, tables } from './tables.js';
+import type { Actor, ErrorRuntime, ErrorState, EventInput, FlatData, Level } from './schema.js';
+import type { ReportingErrorRow, ReportingEventRow, tables } from './tables.js';
 
 /**
  * The host's drizzle handle, whatever driver it runs on. postgres-js in the
@@ -93,6 +93,32 @@ export interface EventsPage {
   readonly next: { readonly occurredAt: Date; readonly id: number } | null;
 }
 
+export interface ErrorsPageOptions {
+  readonly limit?: number;
+  readonly after?: { readonly lastSeenAt: Date; readonly fingerprint: string };
+  readonly site?: string;
+  readonly state?: ErrorState;
+  readonly runtime?: ErrorRuntime;
+}
+
+export interface ErrorsPage {
+  readonly items: readonly ReportingErrorRow[];
+  readonly next: { readonly lastSeenAt: Date; readonly fingerprint: string } | null;
+}
+
+/**
+ * What `captureError` knows about an exception's surroundings; every field
+ * is optional because a boot-time crash has none of them.
+ */
+export interface CaptureContext {
+  readonly runtime?: ErrorRuntime;
+  readonly tenantId?: string | null;
+  readonly requestId?: string | null;
+  readonly release?: string | null;
+  /** Overrides `errorKind(error)` when the caller already knows the class name better than the thrown value can say — a JSON-serialised browser report, say. */
+  readonly kind?: string;
+}
+
 export interface Stats {
   readonly queued: number;
   readonly dropped: number;
@@ -132,6 +158,8 @@ export interface Reporting {
   event(input: EventInput): void;
   /** An `alert.<check>` row at level `alert`, then the host's `onAlert`. */
   alert(finding: AlertFinding): void;
+  /** An uncaught exception, redacted and fingerprinted (./errors/capture.js). Never throws. */
+  captureError(error: unknown, context?: CaptureContext): void;
   /** Drain the queue now. Bounded by `deadlineMs` (default 5,000). Never throws. */
   flush(opts?: { deadlineMs?: number }): Promise<void>;
   readonly events: { page(opts?: EventsPageOptions): Promise<EventsPage> };

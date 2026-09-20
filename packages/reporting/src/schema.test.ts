@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { BANNED_KEYS, KIND_PATTERN, LIMITS, eventInputSchema, flatDataSchema } from './schema.js';
+import {
+  BANNED_KEYS,
+  ERROR_RUNTIMES,
+  ERROR_STATES,
+  FINGERPRINT_PATTERN,
+  KIND_PATTERN,
+  LIMITS,
+  eventInputSchema,
+  flatDataSchema,
+} from './schema.js';
 import { MIGRATION_SQL } from './test/db.js';
 
 describe('eventInputSchema', () => {
@@ -76,5 +85,36 @@ describe('the SQL and the TypeScript agree', () => {
     expect(MIGRATION_SQL).toContain(`octet_length(data::text) <= ${LIMITS.dataBytes}`);
     expect(MIGRATION_SQL).toContain(`length(actor_id) between 1 and ${LIMITS.actorId}`);
     expect(MIGRATION_SQL).toContain(`length(request_id) between 1 and ${LIMITS.requestId}`);
+  });
+});
+
+describe('the SQL and the TypeScript agree on reporting_errors', () => {
+  it('on the error states', () => {
+    const m = /state in \(([^)]+)\)/.exec(MIGRATION_SQL);
+    expect(m?.[1]).toBeDefined();
+    const inSql = (m?.[1] ?? '')
+      .split(',')
+      .map((s) => s.trim().replace(/^'|'$/g, ''))
+      .sort();
+    expect(inSql).toEqual([...ERROR_STATES].sort());
+  });
+
+  it('on the error runtimes', () => {
+    const m = /runtime in \(([^)]+)\)/.exec(MIGRATION_SQL);
+    expect(m?.[1]).toBeDefined();
+    const inSql = (m?.[1] ?? '')
+      .split(',')
+      .map((s) => s.trim().replace(/^'|'$/g, ''))
+      .sort();
+    expect(inSql).toEqual([...ERROR_RUNTIMES].sort());
+  });
+
+  it('on the fingerprint pattern', () => {
+    const m = /fingerprint ~ '([^']+)'/.exec(MIGRATION_SQL);
+    expect(m?.[1]).toBe(FINGERPRINT_PATTERN.source);
+  });
+
+  it('on the stack limit', () => {
+    expect(MIGRATION_SQL).toContain(`length(stack) <= ${LIMITS.stack}`);
   });
 });
