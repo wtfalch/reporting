@@ -5,6 +5,7 @@ import { after, connection } from 'next/server';
 import { type CollectorOptions, createCollector } from '../analytics/collector.js';
 import { countryOf, deviceOf } from '../analytics/schema.js';
 import type { Reporting } from '../types.js';
+import { type ClientErrorCollectorOptions, createClientErrorCollector } from './client-errors.js';
 
 /**
  * The Next bindings: everything in the package that knows what a request is.
@@ -102,6 +103,73 @@ export function collectHandler(
 ): (request: Request) => Promise<Response> {
   const { reporting, ...rest } = options;
   const collector = createCollector({ ...rest, log: reporting.log, site: reporting.site });
+  return (request) => collector.handle(request);
+}
+
+/**
+ * `onRequestError` from Next's instrumentation hook
+ * (`next/dist/server/instrumentation/types.d.ts`, `InstrumentationOnRequestError`).
+ * Declared locally: no public `next` subpath exports the type, and this is
+ * the exact shape the compiled server calls it with
+ * (`base-server.js`'s `instrumentationOnRequestError`).
+ */
+export type NextOnRequestError = (
+  error: unknown,
+  request: Readonly<{
+    path: string;
+    method: string;
+    headers: NodeJS.Dict<string | string[]>;
+  }>,
+  context: Readonly<{ routerKind: string; routePath: string; routeType: string }>,
+) => void | Promise<void>;
+
+function headerValue(dict: NodeJS.Dict<string | string[]>, name: string): string | null {
+  const lower = name.toLowerCase();
+  for (const key of Object.keys(dict)) {
+    if (key.toLowerCase() !== lower) continue;
+    const value = dict[key];
+    return Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+  }
+  return null;
+}
+
+/**
+ * Binds `reporting.captureError` to Next's `onRequestError`
+ * (docs/plans/errors.md, "Surface"). `runtime` is `edge` exactly when
+ * `NEXT_RUNTIME` says so — the same signal Next's own compiled server
+ * branches on (e.g. `dist/server/app-render/action-handler.js`), because
+ * the error context Next hands this hook carries no runtime field of its
+ * own. `requestId` is derived the same way `requestContext()` derives one:
+ * Cloudflare's `cf-ray`, else a fresh uuid.
+ *
+ * Never throws: Next calls this while already handling an error, and a
+ * reporter that throws back is the one failure worse than not reporting —
+ * the same rule `captureError` itself already keeps (errors/capture.ts).
+ * This catch is defence in depth for a `reporting` that violates it.
+ */
+export function errorHandler(reporting: Reporting): NextOnRequestError {
+  return (error, request) => {
+    try {
+      const runtime = process.env.NEXT_RUNTIME === 'edge' ? 'edge' : 'server';
+      const ray = headerValue(request.headers, 'cf-ray');
+      const requestId = ray && RAY_PATTERN.test(ray) ? ray : randomUUID();
+      reporting.captureError(error, { runtime, requestId });
+    } catch {
+      // See the doc comment above: this must never throw back into Next.
+    }
+  };
+}
+
+/**
+ * The public ingest route for browser-reported errors: mount as `POST`
+ * (docs/plans/errors.md, "Surface"; `// authz: public`). See
+ * `createClientErrorCollector` (./client-errors.js) for the caps, the
+ * origin allowance and why identity is never the body's.
+ */
+export function clientErrorHandler(
+  options: ClientErrorCollectorOptions,
+): (request: Request) => Promise<Response> {
+  const collector = createClientErrorCollector(options);
   return (request) => collector.handle(request);
 }
 

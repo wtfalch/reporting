@@ -98,6 +98,20 @@ function truncateEnd(text: string, max: number): string {
   return text.length > max ? text.slice(0, max) : text;
 }
 
+/**
+ * `reporting_errors.tenant_id` is a uuid column and the event row's schema
+ * refuses anything else, so a caller that hands over a slug, an empty string
+ * or a number loses the whole group row rather than just the attribution.
+ * Callers are not all trusted to the same degree -- `./next`'s client ingest
+ * takes what a browser posted -- so the guard lives here, at the one door
+ * every capture goes through.
+ */
+function validTenant(value: string | null | undefined): string | null {
+  return typeof value === 'string' && UUID.test(value) ? value : null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function normaliseRuntime(runtime: CaptureContext['runtime']): ErrorRuntime {
   return runtime && (ERROR_RUNTIMES as readonly string[]).includes(runtime) ? runtime : 'server';
 }
@@ -186,7 +200,13 @@ export function createCapture(o: CaptureOptions) {
         rawStack === null ? null : truncateEnd(redactText(rawStack, secrets), LIMITS.stack);
       const fp = fingerprint({ kind, message, stack });
       const runtime = normaliseRuntime(context.runtime);
-      const tenantId = context.tenantId ?? null;
+      // A tenant id that is not a uuid would be refused by the event row's
+      // own zod check (schema.ts: `tenantId: z.uuid().nullish()`) and would
+      // fail the group upsert at Postgres's cast, which is caught, logged and
+      // dropped -- leaving an occurrence with a timeline row and no group.
+      // The attribution is worth less than the report, so a malformed id is
+      // dropped and the capture goes on.
+      const tenantId = validTenant(context.tenantId);
       const requestId = context.requestId ?? null;
       const release = context.release ?? o.release ?? null;
       const at = o.now();

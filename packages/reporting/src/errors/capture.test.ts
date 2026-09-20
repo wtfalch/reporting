@@ -203,6 +203,53 @@ describe('captureError() against the table', () => {
     expect(Number(after?.occurrences)).toBe(2);
   });
 
+  it.each([
+    ['a slug', 'acme-corp'],
+    ['an empty string', ''],
+    ['a number as a string', '42'],
+    ['a truncated uuid', '0b5d9a1e-1c7a-4f21-9d3e'],
+  ])('drops %s as a tenant id and still writes BOTH rows', async (_label, bad) => {
+    await reset();
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+    });
+    r.captureError(new TypeError('boom'), { tenantId: bad });
+    await h.drain();
+    // The regression: a tenant id the uuid column refuses used to fail the
+    // group upsert, which is caught and logged, so the occurrence kept its
+    // timeline row and silently lost its group.
+    const events = await t.query('select tenant_id from reporting_events');
+    const errors = await t.query('select tenant_id from reporting_errors');
+    expect(events).toHaveLength(1);
+    expect(errors).toHaveLength(1);
+    expect(events[0]?.tenant_id).toBeNull();
+    expect(errors[0]?.tenant_id).toBeNull();
+  });
+
+  it('keeps a well-formed tenant id on both rows', async () => {
+    await reset();
+    const h = deferHarness();
+    const good = '0b5d9a1e-1c7a-4f21-9d3e-6a2f8c4b1e70';
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+    });
+    r.captureError(new TypeError('boom'), { tenantId: good });
+    await h.drain();
+    const events = await t.query('select tenant_id from reporting_events');
+    const errors = await t.query('select tenant_id from reporting_errors');
+    expect(events[0]?.tenant_id).toBe(good);
+    expect(errors[0]?.tenant_id).toBe(good);
+  });
+
   it('captures a non-Error throw — a string and null — without throwing', async () => {
     await reset();
     const h = deferHarness();
