@@ -88,6 +88,64 @@ describe('the beacon: errors', () => {
     expect(posted?.body.errors[0]?.stack).not.toContain('?v=1');
   });
 
+  it('captureError() reports an error a boundary caught, which window never sees', () => {
+    const { win } = fakeWindow();
+    const { sent, send } = capture();
+    const b = createBeacon({
+      collector: '/c',
+      site: 'app',
+      errors: true,
+      errorCollector: '/api/errors',
+      window: win,
+      send,
+      flushMs: 100_000,
+    });
+    // React swallows the throw before window.onerror can see it, so nothing
+    // is fired here: this is the only path error.tsx has.
+    b.captureError(
+      Object.assign(new TypeError('render blew up'), {
+        stack: 'TypeError: render blew up\n    at Page (page.js?v=2:3:1)',
+      }),
+    );
+    b.destroy();
+    const posted = sent.find((s) => s.url === '/api/errors');
+    expect(posted?.body.errors).toHaveLength(1);
+    expect(posted?.body.errors[0]?.kind).toBe('TypeError');
+    expect(posted?.body.errors[0]?.message).toBe('render blew up');
+    // Same query stripping as a thrown one.
+    expect(posted?.body.errors[0]?.stack).not.toContain('?v=2');
+  });
+
+  it('captureError() obeys the same de-duplication as a thrown error', () => {
+    const { win } = fakeWindow();
+    const { sent, send } = capture();
+    const b = createBeacon({
+      collector: '/c',
+      site: 'app',
+      errors: true,
+      errorCollector: '/api/errors',
+      window: win,
+      send,
+      flushMs: 100_000,
+    });
+    const boom = () =>
+      Object.assign(new TypeError('same'), { stack: 'TypeError: same\n    at p (a.js:1:1)' });
+    for (let i = 0; i < 6; i += 1) b.captureError(boom());
+    b.destroy();
+    const posted = sent.find((s) => s.url === '/api/errors');
+    // A boundary that re-renders and re-throws must not become a flood.
+    expect(posted?.body.errors).toHaveLength(1);
+  });
+
+  it('captureError() is a no-op when errors are off, and never throws', () => {
+    const { win } = fakeWindow();
+    const { sent, send } = capture();
+    const b = createBeacon({ collector: '/c', site: 'app', window: win, send });
+    expect(() => b.captureError(new Error('nobody is listening'))).not.toThrow();
+    b.destroy();
+    expect(sent.find((s) => s.url === '/api/errors')).toBeUndefined();
+  });
+
   it('drops a cross-origin "Script error." with nothing else to go on', () => {
     const { win, fire } = fakeWindow();
     const { sent, send } = capture();
