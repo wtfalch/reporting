@@ -70,6 +70,15 @@ export interface ReportingOptions {
   audit?: (change: SettingsChange) => Promise<void>;
   /** The host's route normalisation for analytics paths (addendum A7); the package's default otherwise. */
   normalisePath?: (pathname: string) => string;
+  /**
+   * Extra environment variable names to redact from a captured error's
+   * `message` and `stack`, beyond the estate's own `KEYSTORE_KEK`/
+   * `KEYSTORE_KEK_PREVIOUS`. Each is read the same way
+   * `KEYSTORE_KEK_PREVIOUS` is: comma-separated values allowed, each
+   * trimmed. A company app the factory stamps may hold secret env vars the
+   * estate's own convention does not name.
+   */
+  redactEnvVars?: readonly string[];
   /** Queue bound; past it rows go to the logger only. Default 1,000. */
   queueLimit?: number;
   /** Rows per insert. Default 500. */
