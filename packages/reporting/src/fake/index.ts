@@ -2,6 +2,7 @@ import { alertRow } from '../alerts.js';
 import { createCapture } from '../errors/capture.js';
 import { eventInputSchema } from '../schema.js';
 import { DEFAULT_SETTINGS, RETENTION_BOUNDS } from '../settings.js';
+import type { TenantRetentionKey } from '../settings.js';
 import type { ReportingEventRow } from '../tables.js';
 import { tables } from '../tables.js';
 import type {
@@ -46,6 +47,7 @@ export function createFakeReporting(
   const alerts: AlertFinding[] = [];
   const tracked: (TrackInput & { site: string })[] = [];
   let settings: Settings = { ...DEFAULT_SETTINGS };
+  const tenantRetention = new Map<string, number>();
   let id = 0;
   // No group table to fake, so the upsert never runs (`defer` is a no-op);
   // the timeline row through `fake.event` is what a host's test asserts on.
@@ -145,6 +147,27 @@ export function createFakeReporting(
         return { before, after: settings, by, changed };
       },
     },
+    tenantSettings: {
+      async get(tenantId: string) {
+        const out: Partial<Record<TenantRetentionKey, number>> = {};
+        for (const key of ['events.retention_days', 'analytics.retention_days'] as const) {
+          const value = tenantRetention.get(`${tenantId}:${key}`);
+          if (value !== undefined) out[key] = value;
+        }
+        return out;
+      },
+      async set(tenantId: string, key: TenantRetentionKey, days: number | null) {
+        const mapKey = `${tenantId}:${key}`;
+        if (days === null) {
+          tenantRetention.delete(mapKey);
+          return;
+        }
+        if (!Number.isInteger(days) || days < RETENTION_BOUNDS.min || days > RETENTION_BOUNDS.max) {
+          throw new Error(`reporting.tenantSettings: ${key} out of bounds`);
+        }
+        tenantRetention.set(mapKey, days);
+      },
+    },
     analytics: {
       async track(input) {
         tracked.push({ ...input, site });
@@ -164,6 +187,7 @@ export function createFakeReporting(
       rows.length = 0;
       alerts.length = 0;
       settings = { ...DEFAULT_SETTINGS };
+      tenantRetention.clear();
       id = 0;
     },
   };

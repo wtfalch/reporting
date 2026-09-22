@@ -79,6 +79,24 @@ export const reportingSettings = pgTable('reporting_settings', {
   updatedBy: text('updated_by'),
 });
 
+/** A tenant's own override of a retention setting; mirrored from migrations/0006_tenant_settings.sql. */
+export const reportingTenantSettings = pgTable(
+  'reporting_tenant_settings',
+  {
+    tenantId: uuid('tenant_id').notNull(),
+    key: text('key').notNull(),
+    value: jsonb('value').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().default(sql`now()`),
+    updatedBy: text('updated_by'),
+  },
+  (t) => [
+    primaryKey({
+      name: 'reporting_tenant_settings_pkey',
+      columns: [t.tenantId, t.key],
+    }),
+  ],
+);
+
 /** Raw analytics rows, a window's worth; mirrored from migrations/0002_analytics.sql. */
 export const reportingAnalytics = pgTable(
   'reporting_analytics',
@@ -210,12 +228,14 @@ export type ReportingAnalyticsDailyRow = typeof reportingAnalyticsDaily.$inferSe
 export type ReportingAnalyticsWeeklyRow = typeof reportingAnalyticsWeekly.$inferSelect;
 export type ReportingTaskRow = typeof reportingTasks.$inferSelect;
 export type ReportingSettingRow = typeof reportingSettings.$inferSelect;
+export type ReportingTenantSettingRow = typeof reportingTenantSettings.$inferSelect;
 export type ReportingErrorRow = typeof reportingErrors.$inferSelect;
 
 export const tables = {
   events: reportingEvents,
   tasks: reportingTasks,
   settings: reportingSettings,
+  tenantSettings: reportingTenantSettings,
   analytics: reportingAnalytics,
   analyticsDaily: reportingAnalyticsDaily,
   analyticsWeekly: reportingAnalyticsWeekly,

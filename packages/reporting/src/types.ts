@@ -8,6 +8,7 @@ import type {
 } from './analytics/reader.js';
 import type { Device } from './analytics/schema.js';
 import type { Actor, ErrorRuntime, ErrorState, EventInput, FlatData, Level } from './schema.js';
+import type { TenantRetentionKey } from './settings.js';
 import type { ReportingErrorRow, ReportingEventRow, tables } from './tables.js';
 
 /**
@@ -188,6 +189,12 @@ export interface Reporting {
   readonly settings: {
     get(): Promise<Settings>;
     set(patch: Partial<Settings>, by: Actor): Promise<SettingsChange>;
+  };
+  /** A per-tenant override of a retention setting (gap issue #11); a key a tenant has not set falls back to `settings`. */
+  readonly tenantSettings: {
+    get(tenantId: string): Promise<Partial<Record<TenantRetentionKey, number>>>;
+    /** `days: null` clears the override, falling back to the site-wide default. Throws on an out-of-bounds value. */
+    set(tenantId: string, key: TenantRetentionKey, days: number | null, by: Actor): Promise<void>;
   };
   readonly tables: typeof tables;
   readonly site: string;

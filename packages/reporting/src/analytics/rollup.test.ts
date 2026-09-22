@@ -286,6 +286,59 @@ describe('pruning never outruns the rollups (A3)', () => {
   });
 });
 
+describe('reporting_prune_analytics: a tenant override (gap issue #11)', () => {
+  const TENANT = '55555555-5555-4555-8555-555555555555';
+
+  async function seed(daysAgo: number, path: string, tenant: string | null) {
+    await t.exec(
+      `insert into reporting_analytics (occurred_at, site, name, path, device, tenant_id) values (now(), 'app', 'page.view', '${path}', 'desktop', ${tenant ? `'${tenant}'` : 'null'})`,
+    );
+    // occurred_at and received_at move together: reporting_analytics_clock_check
+    // (0002_analytics.sql) refuses more than 600 seconds of skew between them.
+    await t.exec(
+      `update reporting_analytics set occurred_at = now() - interval '${daysAgo} days', received_at = now() - interval '${daysAgo} days' where path = '${path}'`,
+    );
+  }
+
+  // Tomorrow, so it never blocks any of this block's cutoffs (10-200 days
+  // back) -- these tests exercise the per-tenant window directly, not the
+  // rollup watermark machinery `safePruneBoundary` covers above.
+  const prune = (days: number) =>
+    t.query(
+      `select reporting_prune_analytics(interval '${days} days', 5000, current_date + 1) as n`,
+    );
+
+  it("a tenant's shorter override prunes sooner than the site-wide window", async () => {
+    await t.exec('delete from reporting_tenant_settings');
+    await seed(10, '/short-override', TENANT);
+    await t.exec(
+      `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'analytics.retention_days', to_jsonb(7))`,
+    );
+    const [n] = await prune(90);
+    expect(Number(n?.n)).toBe(1);
+  });
+
+  it("a tenant's longer override keeps a row the site-wide window would already have dropped", async () => {
+    await t.exec('delete from reporting_tenant_settings');
+    await seed(100, '/long-override', TENANT);
+    await t.exec(
+      `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'analytics.retention_days', to_jsonb(200))`,
+    );
+    const [n] = await prune(90);
+    expect(Number(n?.n)).toBe(0);
+  });
+
+  it('a row with no tenant_id always uses the site-wide window, unaffected by any override', async () => {
+    await t.exec('delete from reporting_tenant_settings');
+    await t.exec(
+      `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'analytics.retention_days', to_jsonb(400))`,
+    );
+    await seed(100, '/no-tenant', null);
+    const [n] = await prune(90);
+    expect(Number(n?.n)).toBe(1);
+  });
+});
+
 describe('erasure', () => {
   it("deletes the subject's raw rows and leaves the rollups, which hold no identifier", async () => {
     await raw([
