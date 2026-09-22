@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1 — 2026-09-23
+
+- `errorsPage` is now exported from the package entry. It was unreachable
+  from `@wtfalch/reporting` since 0.3.0, so 0.4.0's `search` (#8) could not
+  be called by a host. `ErrorsPageOptions` and `ErrorsPage` were already
+  exported.
+
 ## 0.4.0 — 2026-09-23
 
 The 2026-09-22 feature-gap audit. Three new migrations; apply them in order.
