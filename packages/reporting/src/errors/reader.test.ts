@@ -29,6 +29,8 @@ async function seed(over: {
   site?: string;
   runtime?: 'server' | 'edge' | 'browser';
   state?: 'open' | 'resolved' | 'ignored';
+  message?: string;
+  stack?: string | null;
   environment?: string;
   lastSeenAt?: Date;
 }) {
@@ -38,7 +40,8 @@ async function seed(over: {
     site: over.site ?? 'test',
     environment: over.environment ?? null,
     kind: 'TypeError',
-    message: 'boom',
+    message: over.message ?? 'boom',
+    stack: over.stack ?? null,
     runtime: over.runtime ?? 'server',
     firstSeenAt: when,
     lastSeenAt: when,
@@ -98,6 +101,51 @@ describe('errorsPage', () => {
 
     const all = await errorsPage(t.db);
     expect(all.items).toHaveLength(3);
+  });
+
+  it('search matches a substring of message or stack, case-insensitively', async () => {
+    await seed({
+      fingerprint: fp(1),
+      message: 'cannot read properties of undefined',
+      stack: null,
+    });
+    await seed({
+      fingerprint: fp(2),
+      message: 'a different failure entirely',
+      stack: 'TypeError: x\n    at parseConfig (/app/src/config.ts:10:5)',
+    });
+    await seed({ fingerprint: fp(3), message: 'network request failed', stack: null });
+
+    const byMessage = await errorsPage(t.db, { search: 'UNDEFINED' });
+    expect(byMessage.items.map((r) => r.fingerprint)).toEqual([fp(1)]);
+
+    const byStack = await errorsPage(t.db, { search: 'parseConfig' });
+    expect(byStack.items.map((r) => r.fingerprint)).toEqual([fp(2)]);
+
+    const none = await errorsPage(t.db, { search: 'nothing matches this' });
+    expect(none.items).toHaveLength(0);
+  });
+
+  it('search treats % and _ literally, not as SQL wildcards', async () => {
+    await seed({ fingerprint: fp(1), message: 'memory at 90% capacity' });
+    await seed({ fingerprint: fp(2), message: 'anything at all here' });
+
+    const literalPercent = await errorsPage(t.db, { search: '90%' });
+    expect(literalPercent.items.map((r) => r.fingerprint)).toEqual([fp(1)]);
+  });
+
+  it('search composes with state, site and runtime', async () => {
+    await seed({ fingerprint: fp(1), message: 'boom in prod', site: 'a', state: 'open' });
+    await seed({ fingerprint: fp(2), message: 'boom in prod', site: 'b', state: 'open' });
+
+    const narrowed = await errorsPage(t.db, { search: 'boom', site: 'a' });
+    expect(narrowed.items.map((r) => r.fingerprint)).toEqual([fp(1)]);
+  });
+
+  it('an empty or whitespace-only search is the same as no search', async () => {
+    await seed({ fingerprint: fp(1), message: 'anything' });
+    const blank = await errorsPage(t.db, { search: '   ' });
+    expect(blank.items).toHaveLength(1);
   });
 });
 

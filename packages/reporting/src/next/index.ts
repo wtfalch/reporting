@@ -6,6 +6,9 @@ import { type CollectorOptions, createCollector } from '../analytics/collector.j
 import { countryOf, deviceOf } from '../analytics/schema.js';
 import type { Reporting } from '../types.js';
 import { type ClientErrorCollectorOptions, createClientErrorCollector } from './client-errors.js';
+import { type EdgeErrorIngestOptions, createEdgeErrorIngestCollector } from './edge-errors.js';
+
+export { edgeErrorHandler, type EdgeCaptureOptions, type EdgeErrorReport } from './edge-errors.js';
 
 /**
  * The Next bindings: everything in the package that knows what a request is.
@@ -170,6 +173,20 @@ export function clientErrorHandler(
   options: ClientErrorCollectorOptions,
 ): (request: Request) => Promise<Response> {
   const collector = createClientErrorCollector(options);
+  return (request) => collector.handle(request);
+}
+
+/**
+ * The node half of `edgeErrorHandler` (./edge-errors.js): mount as `POST` of
+ * an internal route (docs/plans/errors.md has no "Surface" entry for this,
+ * because it is not a public one -- `// authz: public` would be wrong here;
+ * the shared `secret` is the gate). This is where `reporting`'s real `db`
+ * lives, so this is where the edge-forwarded report finally becomes a row.
+ */
+export function edgeErrorIngestHandler(
+  options: EdgeErrorIngestOptions,
+): (request: Request) => Promise<Response> {
+  const collector = createEdgeErrorIngestCollector(options);
   return (request) => collector.handle(request);
 }
 

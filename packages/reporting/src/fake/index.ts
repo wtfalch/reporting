@@ -32,7 +32,12 @@ export interface FakeReporting extends Reporting {
 const silent: Logger = { info() {}, warn() {}, error() {} };
 
 export function createFakeReporting(
-  opts: { site?: string; log?: Logger; environment?: string | null } = {},
+  opts: {
+    site?: string;
+    log?: Logger;
+    redactEnvVars?: readonly string[];
+    environment?: string | null;
+  } = {},
 ): FakeReporting {
   const site = opts.site ?? 'test';
   const environment = opts.environment ?? null;
@@ -51,6 +56,7 @@ export function createFakeReporting(
     now: () => new Date(),
     defer: () => {},
     event: (input) => fake.event(input),
+    redactEnvVars: opts.redactEnvVars,
   });
 
   const fake: FakeReporting = {

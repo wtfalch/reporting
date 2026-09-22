@@ -174,6 +174,60 @@ describe('captureError() against the table', () => {
     }
   });
 
+  it('redacts a host-named secret beyond KEYSTORE_*, via redactEnvVars', async () => {
+    await reset();
+    const original = process.env.ACME_STRIPE_KEY;
+    process.env.ACME_STRIPE_KEY = 'sk-live-abcdef0123456789';
+    try {
+      const h = deferHarness();
+      const r = createReporting({
+        db: t.db,
+        log: memoryLog(),
+        site: 'test',
+        mode: 'test',
+        defer: h.defer,
+        redactEnvVars: ['ACME_STRIPE_KEY'],
+      });
+      const err = new Error(`could not charge with key ${process.env.ACME_STRIPE_KEY}`);
+      r.captureError(err);
+      await h.drain();
+      const rows = await t.query('select message from reporting_errors');
+      const message = rows[0]?.message as string;
+      expect(message).toBeTruthy();
+      expect(message).not.toContain(process.env.ACME_STRIPE_KEY);
+      expect(message).toContain('[redacted: wrapping key]');
+    } finally {
+      // biome-ignore lint/performance/noDelete: same reasoning as KEYSTORE_KEK above
+      if (original === undefined) delete process.env.ACME_STRIPE_KEY;
+      else process.env.ACME_STRIPE_KEY = original;
+    }
+  });
+
+  it('leaves a host-named secret unredacted when redactEnvVars does not name it', async () => {
+    await reset();
+    const original = process.env.ACME_STRIPE_KEY;
+    process.env.ACME_STRIPE_KEY = 'sk-live-abcdef0123456789';
+    try {
+      const h = deferHarness();
+      const r = createReporting({
+        db: t.db,
+        log: memoryLog(),
+        site: 'test',
+        mode: 'test',
+        defer: h.defer,
+      });
+      const err = new Error(`could not charge with key ${process.env.ACME_STRIPE_KEY}`);
+      r.captureError(err);
+      await h.drain();
+      const rows = await t.query('select message from reporting_errors');
+      expect(rows[0]?.message).toContain(process.env.ACME_STRIPE_KEY);
+    } finally {
+      // biome-ignore lint/performance/noDelete: same reasoning as KEYSTORE_KEK above
+      if (original === undefined) delete process.env.ACME_STRIPE_KEY;
+      else process.env.ACME_STRIPE_KEY = original;
+    }
+  });
+
   it('reopens a resolved group on a new occurrence, clearing resolved_at and resolved_by together', async () => {
     await reset();
     const h = deferHarness();

@@ -76,6 +76,7 @@ export function createReporting(options: ReportingOptions): Reporting {
     defer,
     event: (input) => writer.event(input),
     release: process.env.REPORTING_RELEASE ?? null,
+    redactEnvVars: options.redactEnvVars,
   });
 
   const reporting: Reporting = {
