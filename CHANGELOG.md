@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.0 — 2026-09-23
+
+The 2026-09-22 feature-gap audit. Three new migrations; apply them in order.
+
+- `./next`: edge-safe error capture. Middleware and edge-runtime errors were
+  silently dropped because capture needs the database; the edge handler now
+  forwards them to a node route that records them (#4).
+- `migrations/0004_environment.sql`: an `environment` column on
+  `reporting_events` and `reporting_errors`, from `ReportingOptions.environment`,
+  with an `environment` filter on both readers (#6).
+- `reporting.analytics.recent({ sessionId })`, backed by
+  `migrations/0005_analytics_session_index.sql`: everything one browser
+  session did, for debugging a user's report (#9).
+- `migrations/0006_tenant_settings.sql`: per-tenant retention overrides for
+  `events.retention_days` and `analytics.retention_days`, read by the prune
+  functions before the site-wide window, same 7-400 day clamp; the analytics
+  prune still never passes the rollup watermark. `reporting.tenantSettings`
+  reads and sets them (#11).
+- `ReportingOptions.redactEnvVars`: extra environment variable names whose
+  values redaction also removes from captured errors (#7).
+- The errors reader (`errorsPage` in `src/errors/reader.ts`) takes `search`:
+  a case-insensitive substring match against an error group's message or
+  stack (#8).
+- A new or reopened error group now fires an `alert.*` event through the same
+  path as `reporting.alert()`, once per transition and never on a repeat
+  occurrence of an open error (#5). Hosts that count events will see one more
+  row when a new group appears.
+
 ## 0.3.1 — 2026-09-20
 
 - `./browser`: `beacon.captureError(error, kind?)`. 0.3.0 captured only what
