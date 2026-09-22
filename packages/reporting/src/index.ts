@@ -5,7 +5,7 @@ import { insertAnalytics } from './analytics/write.js';
 import { createCapture } from './errors/capture.js';
 import { eventsPage } from './reader.js';
 import { siteSchema } from './schema.js';
-import { getSettings, setSettings } from './settings.js';
+import { getSettings, getTenantRetention, setSettings, setTenantRetention } from './settings.js';
 import { tables } from './tables.js';
 import type { AlertFinding, Mode, Reporting, ReportingOptions } from './types.js';
 import { Writer, describe } from './writer.js';
@@ -112,6 +112,10 @@ export function createReporting(options: ReportingOptions): Reporting {
         }
         return change;
       },
+    },
+    tenantSettings: {
+      get: (tenantId) => getTenantRetention(options.db, tenantId),
+      set: (tenantId, key, days, by) => setTenantRetention(options.db, tenantId, key, days, by),
     },
     analytics: {
       async track(input) {

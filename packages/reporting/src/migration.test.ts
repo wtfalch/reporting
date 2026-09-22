@@ -155,9 +155,61 @@ describe('0003_errors.sql', () => {
   });
 });
 
+describe('0004_tenant_settings.sql', () => {
+  const TENANT = '11111111-1111-4111-8111-111111111111';
+  const upsert = (value: string) =>
+    `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'events.retention_days', ${value})`;
+
+  it('applies twice without complaint', async () => {
+    await t.exec(MIGRATION_SQL);
+  });
+
+  it('accepts a JSON null value and a number within bounds', async () => {
+    await t.exec('delete from reporting_tenant_settings');
+    await t.exec(upsert("'null'::jsonb"));
+    await t.exec('delete from reporting_tenant_settings');
+    await t.exec(upsert('to_jsonb(45)'));
+    const rows = await t.query(
+      `select value from reporting_tenant_settings where tenant_id = '${TENANT}'`,
+    );
+    expect(rows[0]?.value).toBe(45);
+  });
+
+  it.each([
+    ['a number below the floor', 'to_jsonb(6)'],
+    ['a number above the ceiling', 'to_jsonb(401)'],
+    ['a string, neither null nor a number', "to_jsonb('45'::text)"],
+    ['a boolean', 'to_jsonb(true)'],
+    ['an object', "'{}'::jsonb"],
+  ])('refuses %s', async (_name, value) => {
+    await t.exec('delete from reporting_tenant_settings');
+    await expect(t.exec(upsert(value))).rejects.toThrow();
+  });
+
+  it('refuses a key outside the two retention settings', async () => {
+    await t.exec('delete from reporting_tenant_settings');
+    await expect(
+      t.exec(
+        `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'analytics.consent', to_jsonb('always'::text))`,
+      ),
+    ).rejects.toThrow();
+  });
+});
+
 describe('reporting_prune_events', () => {
+  const TENANT = '22222222-2222-4222-8222-222222222222';
+
   async function seed(daysAgo: number, message: string) {
     await t.exec(`${base} ('info', 'a.b', 'test', '${message}')`.replace('values', 'values'));
+    await t.exec(
+      `update reporting_events set occurred_at = now() - interval '${daysAgo} days' where message = '${message}'`,
+    );
+  }
+
+  async function seedTenant(daysAgo: number, message: string) {
+    await t.exec(
+      `insert into reporting_events (level, kind, site, message, tenant_id) values ('info', 'a.b', 'test', '${message}', '${TENANT}')`,
+    );
     await t.exec(
       `update reporting_events set occurred_at = now() - interval '${daysAgo} days' where message = '${message}'`,
     );
@@ -209,6 +261,63 @@ describe('reporting_prune_events', () => {
     const [nulls] = await t.query('select reporting_prune_events(null, null) as n');
     expect(Number(nulls?.n)).toBe(3);
     expect(await count()).toBe(0);
+  });
+
+  it("a tenant's shorter override prunes sooner than the site-wide window", async () => {
+    await t.exec('delete from reporting_events');
+    await t.exec('delete from reporting_tenant_settings');
+    await seedTenant(10, 'tenant-row');
+    await t.exec(
+      `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'events.retention_days', to_jsonb(7))`,
+    );
+    // The site-wide window (30 days) would not touch a 10-day-old row; the
+    // tenant's own 7-day override does.
+    const [n] = await t.query(`select reporting_prune_events(interval '30 days', 5000) as n`);
+    expect(Number(n?.n)).toBe(1);
+  });
+
+  it("a tenant's longer override keeps a row the site-wide window would already have dropped", async () => {
+    await t.exec('delete from reporting_events');
+    await t.exec('delete from reporting_tenant_settings');
+    await seedTenant(35, 'tenant-row');
+    await t.exec(
+      `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'events.retention_days', to_jsonb(200))`,
+    );
+    // The site-wide window (30 days) would drop a 35-day-old row; the
+    // tenant's own 200-day override keeps it.
+    const [n] = await t.query(`select reporting_prune_events(interval '30 days', 5000) as n`);
+    expect(Number(n?.n)).toBe(0);
+    expect(
+      (
+        await t.query(
+          `select count(*)::int as n from reporting_events where tenant_id = '${TENANT}'`,
+        )
+      )[0]?.n,
+    ).toBe(1);
+  });
+
+  it('a row with no tenant_id always uses the site-wide window, unaffected by any override', async () => {
+    await t.exec('delete from reporting_events');
+    await t.exec('delete from reporting_tenant_settings');
+    // An override for a DIFFERENT tenant must never leak onto a row with no
+    // tenant_id at all -- the left join finds nothing for a null key.
+    await t.exec(
+      `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'events.retention_days', to_jsonb(400))`,
+    );
+    await seed(35, 'no-tenant-row');
+    const [n] = await t.query(`select reporting_prune_events(interval '30 days', 5000) as n`);
+    expect(Number(n?.n)).toBe(1);
+  });
+
+  it('a cleared override (JSON null) falls back to the site-wide window again', async () => {
+    await t.exec('delete from reporting_events');
+    await t.exec('delete from reporting_tenant_settings');
+    await seedTenant(35, 'tenant-row');
+    await t.exec(
+      `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'events.retention_days', 'null'::jsonb)`,
+    );
+    const [n] = await t.query(`select reporting_prune_events(interval '30 days', 5000) as n`);
+    expect(Number(n?.n)).toBe(1);
   });
 });
 
@@ -307,5 +416,42 @@ describe('the writer against the table', () => {
       'events.retention_days.before': 30,
       'events.retention_days.after': 45,
     });
+  });
+
+  it("tenantSettings: absent by default, a bounded set, a clear, and one tenant never sees another's", async () => {
+    await t.exec('delete from reporting_tenant_settings');
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: () => {},
+    });
+    const by = { class: 'human' as const, id: 'op1' };
+    const tenantA = '33333333-3333-4333-8333-333333333333';
+    const tenantB = '44444444-4444-4444-8444-444444444444';
+
+    expect(await r.tenantSettings.get(tenantA)).toEqual({});
+
+    await r.tenantSettings.set(tenantA, 'events.retention_days', 200, by);
+    expect(await r.tenantSettings.get(tenantA)).toEqual({ 'events.retention_days': 200 });
+    expect(await r.tenantSettings.get(tenantB)).toEqual({});
+
+    await expect(r.tenantSettings.set(tenantA, 'events.retention_days', 3, by)).rejects.toThrow(
+      /between 7 and 400/,
+    );
+    await expect(r.tenantSettings.set(tenantA, 'events.retention_days', 401, by)).rejects.toThrow();
+    // The rejected attempts above must not have moved the still-valid override.
+    expect(await r.tenantSettings.get(tenantA)).toEqual({ 'events.retention_days': 200 });
+
+    await r.tenantSettings.set(tenantA, 'events.retention_days', null, by);
+    expect(await r.tenantSettings.get(tenantA)).toEqual({});
+    // Clearing is a value update, never a delete (0004_tenant_settings.sql's
+    // "nothing that deletes" convention) -- the row is still there.
+    const rows = await t.query(
+      `select value from reporting_tenant_settings where tenant_id = '${tenantA}'`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.value).toBeNull();
   });
 });

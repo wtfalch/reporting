@@ -1,6 +1,6 @@
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { reportingSettings } from './tables.js';
+import { reportingSettings, reportingTenantSettings } from './tables.js';
 import type { Actor, Db, Settings, SettingsChange } from './types.js';
 
 /**
@@ -88,4 +88,70 @@ export async function setSettings(
     const after = { ...before, ...Object.fromEntries(entries) } as Settings;
     return { before, after, by, changed };
   });
+}
+
+/**
+ * A multi-tenant company app may need a longer or shorter retention window
+ * for one customer's contract without moving the site-wide default (gap
+ * issue #11): `reporting_tenant_settings`, keyed by (tenant_id, key), one
+ * JSONB value the same shape `getSettings`/`setSettings` already parse.
+ * `reporting_prune_events`/`reporting_prune_analytics` (0004_tenant_settings.sql)
+ * check this table for the row they are about to prune before falling back
+ * to the site-wide setting.
+ */
+export const TENANT_RETENTION_KEYS = ['events.retention_days', 'analytics.retention_days'] as const;
+export type TenantRetentionKey = (typeof TENANT_RETENTION_KEYS)[number];
+
+/** Only the keys this tenant has overridden; a key absent here means "use the site-wide default". */
+export async function getTenantRetention(
+  db: Db,
+  tenantId: string,
+): Promise<Partial<Record<TenantRetentionKey, number>>> {
+  const rows = await db
+    .select({ key: reportingTenantSettings.key, value: reportingTenantSettings.value })
+    .from(reportingTenantSettings)
+    .where(eq(reportingTenantSettings.tenantId, tenantId));
+  const out: Partial<Record<TenantRetentionKey, number>> = {};
+  for (const row of rows) {
+    if (typeof row.value === 'number' && Number.isInteger(row.value)) {
+      out[row.key as TenantRetentionKey] = row.value;
+    }
+  }
+  return out;
+}
+
+/**
+ * Sets a tenant's override, or clears it back to the site-wide default when
+ * `days` is `null` -- clearing never deletes the row, same "nothing that
+ * deletes" convention as `reportingSettings`: it stores the JSON `null`
+ * `reporting_prune_events`/`reporting_prune_analytics` already treat as "no
+ * override". Throws on an out-of-bounds value: the caller is a form.
+ */
+export async function setTenantRetention(
+  db: Db,
+  tenantId: string,
+  key: TenantRetentionKey,
+  days: number | null,
+  by: Actor,
+): Promise<void> {
+  if (days !== null) {
+    const parsed = retention.safeParse(days);
+    if (!parsed.success) {
+      throw new Error(
+        `reporting.tenantSettings: ${key} must be an integer between ${RETENTION_BOUNDS.min} and ${RETENTION_BOUNDS.max}`,
+      );
+    }
+  }
+  // The column is `jsonb not null`, and a JS `null` value maps to a SQL
+  // NULL parameter, not the JSON literal `null` -- an explicit cast is the
+  // only way to store "no override" as the value the CHECK and the prune
+  // functions both expect, rather than violate the NOT NULL constraint.
+  const value = days === null ? sql`'null'::jsonb` : sql`to_jsonb(${days}::int)`;
+  await db
+    .insert(reportingTenantSettings)
+    .values({ tenantId, key, value, updatedBy: `${by.class}:${by.id}` })
+    .onConflictDoUpdate({
+      target: [reportingTenantSettings.tenantId, reportingTenantSettings.key],
+      set: { value, updatedAt: sql`now()`, updatedBy: `${by.class}:${by.id}` },
+    });
 }
