@@ -308,12 +308,13 @@ describe('the writer against the table', () => {
     });
     r.event({ kind: 'mail.write_refused', message: 'no' });
     r.captureError(new TypeError('boom'));
-    await r.flush();
     await Promise.all(pending.splice(0, pending.length));
+    await r.flush();
 
+    // The event, the capture's own row, and the alert a new error group fires.
     const page = await r.events.page({});
     expect(page.items.every((row) => row.environment === 'preview')).toBe(true);
-    expect((await r.events.page({ environment: 'preview' })).items).toHaveLength(2);
+    expect((await r.events.page({ environment: 'preview' })).items).toHaveLength(3);
     expect((await r.events.page({ environment: 'production' })).items).toHaveLength(0);
 
     const errors = await t.query('select environment from reporting_errors');

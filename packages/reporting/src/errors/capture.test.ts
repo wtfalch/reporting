@@ -57,7 +57,12 @@ describe('captureError() against the table', () => {
     });
     r.captureError(new TypeError('boom'));
     await h.drain();
-    const events = await t.query('select kind, kind_ns, level, message from reporting_events');
+    // kind_ns = 'error' rather than the whole table: a fresh group also
+    // fires an alert (its own reporting_events row, kind_ns 'alert'; see
+    // the "new-or-reopened alert" describe block below).
+    const events = await t.query(
+      "select kind, kind_ns, level, message from reporting_events where kind_ns = 'error'",
+    );
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ kind_ns: 'error', level: 'error', message: 'boom' });
     expect(events[0]?.kind).toBe('error.type_error');
@@ -277,7 +282,7 @@ describe('captureError() against the table', () => {
     // The regression: a tenant id the uuid column refuses used to fail the
     // group upsert, which is caught and logged, so the occurrence kept its
     // timeline row and silently lost its group.
-    const events = await t.query('select tenant_id from reporting_events');
+    const events = await t.query("select tenant_id from reporting_events where kind_ns = 'error'");
     const errors = await t.query('select tenant_id from reporting_errors');
     expect(events).toHaveLength(1);
     expect(errors).toHaveLength(1);
@@ -298,7 +303,7 @@ describe('captureError() against the table', () => {
     });
     r.captureError(new TypeError('boom'), { tenantId: good });
     await h.drain();
-    const events = await t.query('select tenant_id from reporting_events');
+    const events = await t.query("select tenant_id from reporting_events where kind_ns = 'error'");
     const errors = await t.query('select tenant_id from reporting_errors');
     expect(events[0]?.tenant_id).toBe(good);
     expect(errors[0]?.tenant_id).toBe(good);
@@ -361,9 +366,146 @@ describe('captureError() against the table', () => {
     });
     r.captureError(new Awkward('nope'));
     await h.drain();
-    const rows = await t.query('select kind from reporting_events');
+    const rows = await t.query("select kind from reporting_events where kind_ns = 'error'");
     expect(rows[0]?.kind).toMatch(KIND_PATTERN);
     expect(rows[0]?.kind).toBe('error.unknown');
+  });
+});
+
+describe('captureError(): alerts a new or reopened group, never a repeat', () => {
+  it('fires onAlert with check "new_error" on a fresh group, and writes an alert.new_error event', async () => {
+    await reset();
+    const alerts: unknown[] = [];
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+      onAlert: (finding) => alerts.push(finding),
+    });
+    r.captureError(new TypeError('boom'));
+    await h.drain();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ check: 'new_error' });
+    const rows = await t.query("select kind, level from reporting_events where kind_ns = 'alert'");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: 'alert.new_error', level: 'alert' });
+  });
+
+  it('fires exactly one new_error alert when two occurrences of a brand-new fingerprint race each other', async () => {
+    await reset();
+    const alerts: unknown[] = [];
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+      onAlert: (finding) => alerts.push(finding),
+    });
+    const err = new TypeError('race');
+    // Neither call drains before the next fires, same as the existing
+    // "two concurrent occurrences" row-correctness test above -- both
+    // upserts are in flight against the same, brand-new fingerprint at
+    // once. The row itself already lands as one (occurrences = 2); this
+    // is the same race for whether it also alerts exactly once.
+    r.captureError(err);
+    r.captureError(err);
+    await h.drain();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ check: 'new_error' });
+  });
+
+  it('does not re-alert on a repeat occurrence of an already-open error', async () => {
+    await reset();
+    const alerts: unknown[] = [];
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+      onAlert: (finding) => alerts.push(finding),
+    });
+    const err = new TypeError('flaky');
+    r.captureError(err);
+    await h.drain();
+    r.captureError(err);
+    await h.drain();
+    r.captureError(err);
+    await h.drain();
+    expect(alerts).toHaveLength(1);
+    const rows = await t.query(
+      "select count(*)::int as n from reporting_events where kind_ns = 'alert'",
+    );
+    expect(rows[0]?.n).toBe(1);
+  });
+
+  it('fires onAlert with check "error_reopened" when a resolved group gets a new occurrence', async () => {
+    await reset();
+    const alerts: unknown[] = [];
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+      onAlert: (finding) => alerts.push(finding),
+    });
+    const err = new TypeError('flaky');
+    r.captureError(err);
+    await h.drain();
+    const [row] = await t.query('select fingerprint from reporting_errors');
+    const fp = row?.fingerprint as string;
+    await t.exec(
+      `update reporting_errors set state = 'resolved', resolved_at = now(), resolved_by = 'op1' where fingerprint = '${fp}'`,
+    );
+    r.captureError(err);
+    await h.drain();
+    expect(alerts).toHaveLength(2);
+    expect(alerts[1]).toMatchObject({ check: 'error_reopened' });
+  });
+
+  it('never throws when onAlert itself throws', async () => {
+    await reset();
+    const log = memoryLog();
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log,
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+      onAlert: () => {
+        throw new Error('the host hook is broken');
+      },
+    });
+    expect(() => r.captureError(new TypeError('boom'))).not.toThrow();
+    await expect(h.drain()).resolves.toBeUndefined();
+    expect(log.lines.some((l) => l.level === 'error' && /onAlert threw/.test(l.msg ?? ''))).toBe(
+      true,
+    );
+  });
+
+  it('is a no-op, not a crash, when the host configures no onAlert at all', async () => {
+    await reset();
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+    });
+    r.captureError(new TypeError('boom'));
+    await expect(h.drain()).resolves.toBeUndefined();
+    const errors = await t.query('select fingerprint from reporting_errors');
+    expect(errors).toHaveLength(1);
   });
 });
 
@@ -375,13 +517,13 @@ describe('captureError() against a failing database', () => {
         if (table === reportingEvents) {
           return { values: async () => undefined };
         }
-        return {
-          values: () => ({
-            onConflictDoUpdate: async () => {
-              throw new Error('connection refused');
-            },
-          }),
-        };
+        throw new Error('unexpected insert() outside the writer');
+      },
+      // upsertGroup (errors/capture.ts) runs the group upsert inside
+      // db.transaction(); the timeline row above still goes through the
+      // writer's own `.insert()`, unaffected by this.
+      transaction: async () => {
+        throw new Error('connection refused');
       },
     } as unknown as Db;
     const h = deferHarness();
