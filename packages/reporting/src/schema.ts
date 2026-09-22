@@ -114,6 +114,19 @@ export const siteSchema = z
   .string()
   .regex(SITE_PATTERN, 'a site id is lower case, digits and dashes');
 
+/**
+ * Deploy target, not per-event: stamped once on `ReportingOptions.environment`,
+ * the same as `site`, because a preview or stage deploy is a whole process
+ * running with that value, not a claim an individual event makes (gap issue
+ * #6). Unlike `runtime` or `level`, the set of names is not fixed -- a host
+ * may run `production`/`stage`/`preview`, or its own scheme -- so this only
+ * keeps it slug-shaped.
+ */
+export const ENVIRONMENT_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
+export const environmentSchema = z
+  .string()
+  .regex(ENVIRONMENT_PATTERN, 'an environment is lower case, digits, dashes and underscores');
+
 export const fingerprintSchema = z
   .string()
   .regex(FINGERPRINT_PATTERN, 'a fingerprint is 32 lower-case hex characters');

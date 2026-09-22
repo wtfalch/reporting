@@ -48,6 +48,41 @@ describe('what counts as a held secret', () => {
   });
 });
 
+describe('a host-extended redaction list (extraEnvVars)', () => {
+  it('covers a named env var beyond KEYSTORE_*, same as the estate ones', () => {
+    const apiKey = 'sk-live-abcdef0123456789';
+    const all = heldSecrets({ STRIPE_API_KEY: apiKey }, ['STRIPE_API_KEY']);
+    expect(all).toContain(apiKey);
+  });
+
+  it('reads comma-separated values, the same shape KEYSTORE_KEK_PREVIOUS uses', () => {
+    const first = 'k-one';
+    const second = 'k-two';
+    const all = heldSecrets({ APP_SECRETS: `${first}, ${second}` }, ['APP_SECRETS']);
+    expect(all).toContain(first);
+    expect(all).toContain(second);
+  });
+
+  it('adds nothing for a named var that is unset or blank', () => {
+    const all = heldSecrets({ OTHER: 'x' }, ['MISSING_VAR']);
+    expect(all).toEqual([]);
+  });
+
+  it('covers several extra vars at once, alongside the KEYSTORE_* ones', () => {
+    const all = heldSecrets(
+      { KEYSTORE_KEK: kek, APP_SECRET_A: 'a-secret', APP_SECRET_B: 'b-secret' },
+      ['APP_SECRET_A', 'APP_SECRET_B'],
+    );
+    expect(all).toContain(kek);
+    expect(all).toContain('a-secret');
+    expect(all).toContain('b-secret');
+  });
+
+  it('defaults to no extra vars when the argument is omitted', () => {
+    expect(heldSecrets({ APP_SECRET: 'x' })).toEqual([]);
+  });
+});
+
 describe('redactText', () => {
   it('replaces a wrapping key wherever it sits in a realistic multi-line stack', () => {
     const stack = [

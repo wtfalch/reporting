@@ -25,6 +25,7 @@ export interface WriterOptions {
   db: Db;
   log: Logger;
   site: string;
+  environment: string | null;
   mode: Mode;
   now: () => Date;
   defer: (fn: () => Promise<void>) => void;
@@ -92,6 +93,7 @@ export class Writer {
       level: v.level,
       kind: v.kind,
       site: this.o.site,
+      environment: this.o.environment,
       tenantId: v.tenantId ?? null,
       actorClass: v.actor?.class ?? null,
       actorId: v.actor?.id ?? null,

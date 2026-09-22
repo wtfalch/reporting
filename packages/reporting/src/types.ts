@@ -56,6 +56,15 @@ export interface ReportingOptions {
   /** This host's id, stamped on every row: `^[a-z][a-z0-9-]{0,63}$`. */
   site: string;
   /**
+   * The deploy target, stamped on every row the same way `site` is:
+   * `production`, `stage`, a per-PR `preview`, or the host's own scheme
+   * (`^[a-z][a-z0-9_-]{0,31}$`). A factory app runs prod, stage and one
+   * preview per PR under the same `site`; without this there is no way to
+   * keep preview noise out of a production view. Optional and unset by
+   * default, same as `release`.
+   */
+  environment?: string | null;
+  /**
    * Runs a flush after the current unit of work. The `./next` entry passes
    * `after()`; the default is `setTimeout(0)`, which a script keeps until it
    * exits. Errors thrown by `fn` are the flush's own and never reach here.
@@ -70,6 +79,15 @@ export interface ReportingOptions {
   audit?: (change: SettingsChange) => Promise<void>;
   /** The host's route normalisation for analytics paths (addendum A7); the package's default otherwise. */
   normalisePath?: (pathname: string) => string;
+  /**
+   * Extra environment variable names to redact from a captured error's
+   * `message` and `stack`, beyond the estate's own `KEYSTORE_KEK`/
+   * `KEYSTORE_KEK_PREVIOUS`. Each is read the same way
+   * `KEYSTORE_KEK_PREVIOUS` is: comma-separated values allowed, each
+   * trimmed. A company app the factory stamps may hold secret env vars the
+   * estate's own convention does not name.
+   */
+  redactEnvVars?: readonly string[];
   /** Queue bound; past it rows go to the logger only. Default 1,000. */
   queueLimit?: number;
   /** Rows per insert. Default 500. */
@@ -86,6 +104,7 @@ export interface EventsPageOptions {
   readonly tenantId?: string;
   readonly site?: string;
   readonly requestId?: string;
+  readonly environment?: string;
 }
 
 export interface EventsPage {
@@ -99,6 +118,9 @@ export interface ErrorsPageOptions {
   readonly site?: string;
   readonly state?: ErrorState;
   readonly runtime?: ErrorRuntime;
+  /** A case-insensitive substring match against `message` or `stack`, for triaging an incident by grepping the group list. Capped at 200 characters. */
+  readonly search?: string;
+  readonly environment?: string;
 }
 
 export interface ErrorsPage {

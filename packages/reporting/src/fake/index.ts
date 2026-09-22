@@ -31,8 +31,16 @@ export interface FakeReporting extends Reporting {
 
 const silent: Logger = { info() {}, warn() {}, error() {} };
 
-export function createFakeReporting(opts: { site?: string; log?: Logger } = {}): FakeReporting {
+export function createFakeReporting(
+  opts: {
+    site?: string;
+    log?: Logger;
+    redactEnvVars?: readonly string[];
+    environment?: string | null;
+  } = {},
+): FakeReporting {
   const site = opts.site ?? 'test';
+  const environment = opts.environment ?? null;
   const log = opts.log ?? silent;
   const rows: ReportingEventRow[] = [];
   const alerts: AlertFinding[] = [];
@@ -48,6 +56,7 @@ export function createFakeReporting(opts: { site?: string; log?: Logger } = {}):
     now: () => new Date(),
     defer: () => {},
     event: (input) => fake.event(input),
+    redactEnvVars: opts.redactEnvVars,
   });
 
   const fake: FakeReporting = {
@@ -67,6 +76,7 @@ export function createFakeReporting(opts: { site?: string; log?: Logger } = {}):
         kind: v.kind,
         kindNs: v.kind.split('.')[0] ?? '',
         site,
+        environment,
         tenantId: v.tenantId ?? null,
         actorClass: v.actor?.class ?? null,
         actorId: v.actor?.id ?? null,
@@ -95,6 +105,7 @@ export function createFakeReporting(opts: { site?: string; log?: Logger } = {}):
         if (o.tenantId) list = list.filter((r) => r.tenantId === o.tenantId);
         if (o.site) list = list.filter((r) => r.site === o.site);
         if (o.requestId) list = list.filter((r) => r.requestId === o.requestId);
+        if (o.environment) list = list.filter((r) => r.environment === o.environment);
         if (o.after) {
           const { occurredAt, id: afterId } = o.after;
           list = list.filter(

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   BANNED_KEYS,
+  ENVIRONMENT_PATTERN,
   ERROR_RUNTIMES,
   ERROR_STATES,
   FINGERPRINT_PATTERN,
   KIND_PATTERN,
   LIMITS,
+  environmentSchema,
   eventInputSchema,
   flatDataSchema,
 } from './schema.js';
@@ -116,5 +118,25 @@ describe('the SQL and the TypeScript agree on reporting_errors', () => {
 
   it('on the stack limit', () => {
     expect(MIGRATION_SQL).toContain(`length(stack) <= ${LIMITS.stack}`);
+  });
+});
+
+describe('environmentSchema', () => {
+  it.each(['production', 'stage', 'preview-123', 'a', 'a'.repeat(32)])('accepts %s', (v) => {
+    expect(environmentSchema.safeParse(v).success).toBe(true);
+  });
+
+  it.each([
+    ['upper case', 'Production'],
+    ['starts with a digit', '1prod'],
+    ['over 32 characters', 'a'.repeat(33)],
+    ['empty', ''],
+  ])('refuses %s', (_name, v) => {
+    expect(environmentSchema.safeParse(v).success).toBe(false);
+  });
+
+  it('matches the CHECK on both reporting_events and reporting_errors', () => {
+    const matches = [...MIGRATION_SQL.matchAll(/environment ~ '([^']+)'/g)].map((m) => m[1]);
+    expect(matches).toEqual([ENVIRONMENT_PATTERN.source, ENVIRONMENT_PATTERN.source]);
   });
 });

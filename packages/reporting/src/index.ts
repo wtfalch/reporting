@@ -4,7 +4,7 @@ import { ANALYTICS_NAME_PATTERN, normalisePath, propsSchema } from './analytics/
 import { insertAnalytics } from './analytics/write.js';
 import { createCapture } from './errors/capture.js';
 import { eventsPage } from './reader.js';
-import { siteSchema } from './schema.js';
+import { environmentSchema, siteSchema } from './schema.js';
 import { getSettings, setSettings } from './settings.js';
 import { tables } from './tables.js';
 import type { AlertFinding, Mode, Reporting, ReportingOptions } from './types.js';
@@ -44,6 +44,8 @@ function modeFromEnv(): Mode {
  */
 export function createReporting(options: ReportingOptions): Reporting {
   const site = siteSchema.parse(options.site);
+  const environment =
+    options.environment != null ? environmentSchema.parse(options.environment) : null;
   const now = options.now ?? (() => new Date());
   const mode = options.mode ?? modeFromEnv();
   const defer: (fn: () => Promise<void>) => void =
@@ -55,6 +57,7 @@ export function createReporting(options: ReportingOptions): Reporting {
     db: options.db,
     log: options.log,
     site,
+    environment,
     mode,
     now,
     defer,
@@ -82,11 +85,13 @@ export function createReporting(options: ReportingOptions): Reporting {
     db: options.db,
     log: options.log,
     site,
+    environment,
     now,
     defer,
     event: (input) => writer.event(input),
     release: process.env.REPORTING_RELEASE ?? null,
     alert: fireAlert,
+    redactEnvVars: options.redactEnvVars,
   });
 
   const reporting: Reporting = {
