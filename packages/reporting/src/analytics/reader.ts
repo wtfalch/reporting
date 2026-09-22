@@ -135,6 +135,13 @@ export interface RecentOptions {
   readonly site: string;
   readonly tenantId?: string;
   readonly name?: string;
+  /**
+   * Everything one session did (gap issue #9): the lightest
+   * privacy-consistent equivalent of session replay, since every row
+   * already carries the visitor's per-tab session id and nothing else this
+   * reader would not already show.
+   */
+  readonly sessionId?: string;
   readonly limit?: number;
 }
 
@@ -171,6 +178,7 @@ export async function analyticsRecent(
         eq(t.site, opts.site),
         opts.tenantId ? eq(t.tenantId, opts.tenantId) : undefined,
         opts.name ? eq(t.name, opts.name) : undefined,
+        opts.sessionId ? eq(t.sessionId, opts.sessionId) : undefined,
       ),
     )
     .orderBy(desc(t.occurredAt), desc(t.id))

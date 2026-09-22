@@ -155,6 +155,19 @@ describe('0003_errors.sql', () => {
   });
 });
 
+describe('0004_analytics_session_index.sql', () => {
+  it('applies twice without complaint', async () => {
+    await t.exec(MIGRATION_SQL);
+  });
+
+  it('creates the session-scoped partial index', async () => {
+    const rows = await t.query(
+      `select indexname from pg_indexes where tablename = 'reporting_analytics' and indexname = 'reporting_analytics_session_time_idx'`,
+    );
+    expect(rows).toHaveLength(1);
+  });
+});
+
 describe('reporting_prune_events', () => {
   async function seed(daysAgo: number, message: string) {
     await t.exec(`${base} ('info', 'a.b', 'test', '${message}')`.replace('values', 'values'));
