@@ -1,8 +1,8 @@
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { ERROR_RUNTIMES, KIND_PATTERN, LIMITS } from '../schema.js';
 import type { ErrorRuntime } from '../schema.js';
 import { reportingErrors } from '../tables.js';
-import type { CaptureContext, Db, EventInput, Logger } from '../types.js';
+import type { AlertFinding, CaptureContext, Db, EventInput, Logger } from '../types.js';
 import { describe } from '../writer.js';
 import { errorKind, fingerprint } from './fingerprint.js';
 import { heldSecrets, redactText } from './redact.js';
@@ -15,6 +15,14 @@ import { heldSecrets, redactText } from './redact.js';
  * and one upsert into the fingerprint's group — first seen, last seen, how
  * many, and whether an operator has already dealt with it.
  *
+ * A group that is brand new, or that just reopened from resolved or
+ * ignored, also fires `o.alert` once -- never a repeat occurrence of an
+ * error that was already open, which would make this a flood rather than a
+ * page. `o.alert` is the same host-supplied `onAlert` hook `Reporting.alert`
+ * already writes an `alert.<check>` row and calls (index.ts's `fireAlert`);
+ * this package holds no vendor of its own to page through.
+ *
+
  * Two contracts this must never break, both sharpened from the writer's own
  * (writer.ts's header comment) for an error reporter specifically:
  *
@@ -43,6 +51,15 @@ export interface CaptureOptions {
   readonly event: (input: EventInput) => void;
   /** Stamped on a fresh group when a capture's own context supplies none. */
   readonly release?: string | null;
+  /**
+   * Fires once when `captureError` creates a fresh group or reopens a
+   * resolved/ignored one -- never on a repeat occurrence of an
+   * already-open error, which would make this a flood rather than a page.
+   * The host's own `onAlert` (docs/plans/errors.md: "a pager is a later
+   * decision now that nothing pages" -- this is that decision). Never
+   * called for a group upsert that fails or is dropped.
+   */
+  readonly alert?: (finding: AlertFinding) => void;
 }
 
 const CAMEL_BOUNDARY = /([a-z0-9])([A-Z])/g;
@@ -128,9 +145,10 @@ interface GroupSample {
   readonly at: Date;
 }
 
+export type UpsertOutcome = 'created' | 'reopened' | 'unchanged';
+
 /**
- * `insert ... on conflict (fingerprint) do update`, one round trip so two
- * occurrences arriving at once still land as one row: bump `occurrences`,
+ * `insert ... on conflict (fingerprint) do update`: bump `occurrences`,
  * move `last_seen_at`, overwrite the sample fields with the newest
  * occurrence. `first_seen_at` is left out of `set` entirely, so a conflict
  * never moves it.
@@ -139,40 +157,76 @@ interface GroupSample {
  * enforces (`reporting_errors_resolved_pair_check`, 0003_errors.sql) means
  * `state` can only move back to 'open' by clearing `resolved_at` and
  * `resolved_by` in the same statement, never one alone.
+ *
+ * Telling a brand-new group from a reopened one from a repeat occurrence
+ * needs the state from *before* this upsert touches it, and that read must
+ * not race a concurrent capture of the same fingerprint -- two occurrences
+ * arriving at once must still alert once, the same guarantee the row
+ * itself already had. A plain `select` run alongside the upsert (even in
+ * the same statement, via a CTE) does not give that: under READ COMMITTED
+ * a statement's snapshot is fixed at its start, so two concurrent
+ * transactions' own plain reads can each see "no row yet" even after one
+ * of them has since committed the insert -- there is no re-check the way
+ * an UPDATE's own target row gets. `select ... for update` does get that
+ * re-check (the same special case that makes `occurrences + 1` correct
+ * under conflict): it locks an existing row, so a second transaction's own
+ * `for update` blocks until the first commits, then reads the fresh
+ * value -- and locks nothing when there is no row yet, which is fine,
+ * because "created" is decided separately, from the insert's own `xmax`
+ * (0 exactly when this statement is what created the row, never a race:
+ * it reflects the row this transaction's own write produced). Both reads
+ * share one transaction so the lock from the first is still held for the
+ * second.
  */
-async function upsertGroup(db: Db, site: string, s: GroupSample): Promise<void> {
-  const reopened = sql`case when ${reportingErrors.state} in ('resolved', 'ignored') then 'open' else ${reportingErrors.state} end`;
-  await db
-    .insert(reportingErrors)
-    .values({
-      fingerprint: s.fingerprint,
-      site,
-      kind: s.kind,
-      message: s.message,
-      stack: s.stack,
-      runtime: s.runtime,
-      release: s.release,
-      firstSeenAt: s.at,
-      lastSeenAt: s.at,
-      occurrences: 1,
-      tenantId: s.tenantId,
-      requestId: s.requestId,
-    })
-    .onConflictDoUpdate({
-      target: reportingErrors.fingerprint,
-      set: {
-        occurrences: sql`${reportingErrors.occurrences} + 1`,
-        lastSeenAt: s.at,
+async function upsertGroup(db: Db, site: string, s: GroupSample): Promise<UpsertOutcome> {
+  return db.transaction(async (tx) => {
+    const prior = await tx
+      .select({ state: reportingErrors.state })
+      .from(reportingErrors)
+      .where(eq(reportingErrors.fingerprint, s.fingerprint))
+      .for('update');
+    const priorState = prior[0]?.state ?? null;
+
+    const reopened = sql`case when ${reportingErrors.state} in ('resolved', 'ignored') then 'open' else ${reportingErrors.state} end`;
+    const written = await tx
+      .insert(reportingErrors)
+      .values({
+        fingerprint: s.fingerprint,
+        site,
+        kind: s.kind,
         message: s.message,
         stack: s.stack,
+        runtime: s.runtime,
+        release: s.release,
+        firstSeenAt: s.at,
+        lastSeenAt: s.at,
+        occurrences: 1,
         tenantId: s.tenantId,
         requestId: s.requestId,
-        release: s.release,
-        state: reopened,
-        resolvedAt: sql`case when ${reportingErrors.state} in ('resolved', 'ignored') then null else ${reportingErrors.resolvedAt} end`,
-        resolvedBy: sql`case when ${reportingErrors.state} in ('resolved', 'ignored') then null else ${reportingErrors.resolvedBy} end`,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: reportingErrors.fingerprint,
+        set: {
+          occurrences: sql`${reportingErrors.occurrences} + 1`,
+          lastSeenAt: s.at,
+          message: s.message,
+          stack: s.stack,
+          tenantId: s.tenantId,
+          requestId: s.requestId,
+          release: s.release,
+          state: reopened,
+          resolvedAt: sql`case when ${reportingErrors.state} in ('resolved', 'ignored') then null else ${reportingErrors.resolvedAt} end`,
+          resolvedBy: sql`case when ${reportingErrors.state} in ('resolved', 'ignored') then null else ${reportingErrors.resolvedBy} end`,
+        },
+      })
+      // xmax = 0 is true exactly for a row this statement inserted fresh,
+      // false when it took the on-conflict-update path -- the standard,
+      // race-free way to tell the two apart from an upsert's own result.
+      .returning({ created: sql<boolean>`(xmax = 0)` });
+
+    if (written[0]?.created) return 'created';
+    return priorState === 'resolved' || priorState === 'ignored' ? 'reopened' : 'unchanged';
+  });
 }
 
 /**
@@ -233,12 +287,34 @@ export function createCapture(o: CaptureOptions) {
       };
       try {
         o.defer(() =>
-          upsertGroup(o.db, o.site, sample).catch((err) => {
-            o.log.error(
-              { err: describe(err), fingerprint: fp },
-              'reporting: error group upsert failed',
-            );
-          }),
+          upsertGroup(o.db, o.site, sample)
+            .then((outcome) => {
+              if (outcome === 'unchanged' || !o.alert) return;
+              try {
+                o.alert({
+                  check: outcome === 'created' ? 'new_error' : 'error_reopened',
+                  message:
+                    `${outcome === 'created' ? 'new error' : 'error reopened'}: ${sample.kind}: ${sample.message}`.slice(
+                      0,
+                      512,
+                    ),
+                  detail: {
+                    fingerprint: sample.fingerprint,
+                    kind: sample.kind,
+                    runtime: sample.runtime,
+                    site: o.site,
+                  },
+                });
+              } catch (err) {
+                o.log.error({ err: describe(err) }, 'reporting: error alert threw');
+              }
+            })
+            .catch((err) => {
+              o.log.error(
+                { err: describe(err), fingerprint: fp },
+                'reporting: error group upsert failed',
+              );
+            }),
         );
       } catch (err) {
         // A host's defer that throws (called outside a request scope, say)
