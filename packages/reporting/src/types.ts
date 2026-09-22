@@ -108,6 +108,8 @@ export interface ErrorsPageOptions {
   readonly site?: string;
   readonly state?: ErrorState;
   readonly runtime?: ErrorRuntime;
+  /** A case-insensitive substring match against `message` or `stack`, for triaging an incident by grepping the group list. Capped at 200 characters. */
+  readonly search?: string;
 }
 
 export interface ErrorsPage {
