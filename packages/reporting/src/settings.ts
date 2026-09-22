@@ -95,7 +95,7 @@ export async function setSettings(
  * for one customer's contract without moving the site-wide default (gap
  * issue #11): `reporting_tenant_settings`, keyed by (tenant_id, key), one
  * JSONB value the same shape `getSettings`/`setSettings` already parse.
- * `reporting_prune_events`/`reporting_prune_analytics` (0004_tenant_settings.sql)
+ * `reporting_prune_events`/`reporting_prune_analytics` (0006_tenant_settings.sql)
  * check this table for the row they are about to prune before falling back
  * to the site-wide setting.
  */

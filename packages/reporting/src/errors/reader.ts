@@ -34,6 +34,7 @@ export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<
     );
     if (clause) conditions.push(clause);
   }
+  if (opts.environment) conditions.push(eq(reportingErrors.environment, opts.environment));
   if (opts.after) {
     const { lastSeenAt, fingerprint } = opts.after;
     const keyset = or(

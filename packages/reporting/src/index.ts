@@ -4,7 +4,7 @@ import { ANALYTICS_NAME_PATTERN, normalisePath, propsSchema } from './analytics/
 import { insertAnalytics } from './analytics/write.js';
 import { createCapture } from './errors/capture.js';
 import { eventsPage } from './reader.js';
-import { siteSchema } from './schema.js';
+import { environmentSchema, siteSchema } from './schema.js';
 import { getSettings, getTenantRetention, setSettings, setTenantRetention } from './settings.js';
 import { tables } from './tables.js';
 import type { AlertFinding, Mode, Reporting, ReportingOptions } from './types.js';
@@ -44,6 +44,8 @@ function modeFromEnv(): Mode {
  */
 export function createReporting(options: ReportingOptions): Reporting {
   const site = siteSchema.parse(options.site);
+  const environment =
+    options.environment != null ? environmentSchema.parse(options.environment) : null;
   const now = options.now ?? (() => new Date());
   const mode = options.mode ?? modeFromEnv();
   const defer: (fn: () => Promise<void>) => void =
@@ -55,6 +57,7 @@ export function createReporting(options: ReportingOptions): Reporting {
     db: options.db,
     log: options.log,
     site,
+    environment,
     mode,
     now,
     defer,
@@ -62,16 +65,32 @@ export function createReporting(options: ReportingOptions): Reporting {
     batchSize: options.batchSize ?? 500,
     flushEveryMs: options.flushEveryMs ?? 1000,
   });
+  // One alerting path, shared by `reporting.alert()` and a new-or-reopened
+  // capture (errors/capture.ts's `alert` option): an `alert.<check>` row,
+  // already indexed and pruned the same as everything else on the
+  // timeline, then the host's own hook -- never a vendor's. A throw from
+  // that hook is the host's, not this package's, to fail on.
+  function fireAlert(finding: AlertFinding): void {
+    writer.event(alertRow(finding));
+    if (!options.onAlert) return;
+    try {
+      options.onAlert(finding);
+    } catch (error) {
+      options.log.error({ err: describe(error) }, 'reporting: onAlert threw');
+    }
+  }
   // Same db, log, defer, now and site as the writer: one instance, one
   // upsert path, no second connection or timer to keep in sync.
   const capture = createCapture({
     db: options.db,
     log: options.log,
     site,
+    environment,
     now,
     defer,
     event: (input) => writer.event(input),
     release: process.env.REPORTING_RELEASE ?? null,
+    alert: fireAlert,
     redactEnvVars: options.redactEnvVars,
   });
 
@@ -81,15 +100,7 @@ export function createReporting(options: ReportingOptions): Reporting {
     tables,
     event: (input) => writer.event(input),
     captureError: (error, context) => capture(error, context),
-    alert(finding: AlertFinding) {
-      writer.event(alertRow(finding));
-      if (!options.onAlert) return;
-      try {
-        options.onAlert(finding);
-      } catch (error) {
-        options.log.error({ err: describe(error) }, 'reporting: onAlert threw');
-      }
-    },
+    alert: fireAlert,
     flush: (opts) => writer.flush(opts),
     events: { page: (opts) => eventsPage(options.db, opts) },
     settings: {

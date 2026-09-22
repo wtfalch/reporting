@@ -155,7 +155,53 @@ describe('0003_errors.sql', () => {
   });
 });
 
-describe('0004_tenant_settings.sql', () => {
+describe('0004_environment.sql', () => {
+  const fp = (n: number) => n.toString(16).padStart(32, '0');
+  const errBase =
+    'insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at) values';
+
+  it('applies twice without complaint', async () => {
+    await t.exec(MIGRATION_SQL);
+  });
+
+  it('accepts a null or a slug-shaped environment on both tables', async () => {
+    await t.exec(`${base} ('info', 'a.b', 'test', 'm')`);
+    await t.exec(
+      `insert into reporting_events (level, kind, site, message, environment) values ('info', 'a.b', 'test', 'm', 'production')`,
+    );
+    await t.exec(`${errBase} ('${fp(20)}', 'test', 'TypeError', 'boom', 'server', now(), now())`);
+    await t.exec(
+      `insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at, environment) values ('${fp(21)}', 'test', 'TypeError', 'boom', 'server', now(), now(), 'preview')`,
+    );
+  });
+
+  it.each([
+    [
+      'an upper-case environment',
+      `insert into reporting_events (level, kind, site, message, environment) values ('info', 'a.b', 'test', 'm', 'Production')`,
+    ],
+    [
+      'an environment over 32 characters',
+      `insert into reporting_events (level, kind, site, message, environment) values ('info', 'a.b', 'test', 'm', repeat('a', 33))`,
+    ],
+    [
+      'an environment starting with a digit',
+      `insert into reporting_events (level, kind, site, message, environment) values ('info', 'a.b', 'test', 'm', '1prod')`,
+    ],
+  ])('refuses %s on reporting_events', async (_name, statement) => {
+    await expect(t.exec(statement)).rejects.toThrow();
+  });
+
+  it('refuses an upper-case environment on reporting_errors', async () => {
+    await expect(
+      t.exec(
+        `insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at, environment) values ('${fp(22)}', 'test', 'TypeError', 'boom', 'server', now(), now(), 'Production')`,
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+describe('0006_tenant_settings.sql', () => {
   const TENANT = '11111111-1111-4111-8111-111111111111';
   const upsert = (value: string) =>
     `insert into reporting_tenant_settings (tenant_id, key, value) values ('${TENANT}', 'events.retention_days', ${value})`;
@@ -357,6 +403,46 @@ describe('the writer against the table', () => {
     });
   });
 
+  it('stamps environment on every event and every error group, and filters by it', async () => {
+    await t.exec('delete from reporting_events');
+    await t.exec('delete from reporting_errors');
+    const pending: Promise<void>[] = [];
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      environment: 'preview',
+      mode: 'test',
+      defer: (fn) => pending.push(fn()),
+    });
+    r.event({ kind: 'mail.write_refused', message: 'no' });
+    r.captureError(new TypeError('boom'));
+    await Promise.all(pending.splice(0, pending.length));
+    await r.flush();
+
+    // The event, the capture's own row, and the alert a new error group fires.
+    const page = await r.events.page({});
+    expect(page.items.every((row) => row.environment === 'preview')).toBe(true);
+    expect((await r.events.page({ environment: 'preview' })).items).toHaveLength(3);
+    expect((await r.events.page({ environment: 'production' })).items).toHaveLength(0);
+
+    const errors = await t.query('select environment from reporting_errors');
+    expect(errors).toEqual([{ environment: 'preview' }]);
+  });
+
+  it('refuses a malformed environment at construction', () => {
+    expect(() =>
+      createReporting({
+        db: t.db,
+        log: memoryLog(),
+        site: 'test',
+        environment: 'Production',
+        mode: 'test',
+        defer: () => {},
+      }),
+    ).toThrow();
+  });
+
   it('pages newest first with a stable keyset cursor across an insert', async () => {
     await t.exec('delete from reporting_events');
     const r = createReporting({
@@ -446,12 +532,25 @@ describe('the writer against the table', () => {
 
     await r.tenantSettings.set(tenantA, 'events.retention_days', null, by);
     expect(await r.tenantSettings.get(tenantA)).toEqual({});
-    // Clearing is a value update, never a delete (0004_tenant_settings.sql's
+    // Clearing is a value update, never a delete (0006_tenant_settings.sql's
     // "nothing that deletes" convention) -- the row is still there.
     const rows = await t.query(
       `select value from reporting_tenant_settings where tenant_id = '${tenantA}'`,
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]?.value).toBeNull();
+  });
+});
+
+describe('0005_analytics_session_index.sql', () => {
+  it('applies twice without complaint', async () => {
+    await t.exec(MIGRATION_SQL);
+  });
+
+  it('creates the session-scoped partial index', async () => {
+    const rows = await t.query(
+      `select indexname from pg_indexes where tablename = 'reporting_analytics' and indexname = 'reporting_analytics_session_time_idx'`,
+    );
+    expect(rows).toHaveLength(1);
   });
 });

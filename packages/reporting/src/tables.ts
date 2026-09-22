@@ -30,6 +30,7 @@ export const reportingEvents = pgTable(
     kind: text('kind').notNull(),
     kindNs: text('kind_ns').generatedAlwaysAs(sql`split_part(kind, '.', 1)`),
     site: text('site').notNull(),
+    environment: text('environment'),
     tenantId: uuid('tenant_id'),
     actorClass: text('actor_class'),
     actorId: text('actor_id'),
@@ -78,7 +79,7 @@ export const reportingSettings = pgTable('reporting_settings', {
   updatedBy: text('updated_by'),
 });
 
-/** A tenant's own override of a retention setting; mirrored from migrations/0004_tenant_settings.sql. */
+/** A tenant's own override of a retention setting; mirrored from migrations/0006_tenant_settings.sql. */
 export const reportingTenantSettings = pgTable(
   'reporting_tenant_settings',
   {
@@ -198,6 +199,7 @@ export const reportingErrors = pgTable(
   {
     fingerprint: text('fingerprint').primaryKey(),
     site: text('site').notNull(),
+    environment: text('environment'),
     kind: text('kind').notNull(),
     message: text('message').notNull(),
     stack: text('stack'),
