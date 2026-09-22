@@ -30,6 +30,9 @@ export {
   type WeeklyPoint,
 } from './analytics/reader.js';
 export type { AnalyticsRow } from './analytics/write.js';
+// The error-group list, for a host's triage page: filters, keyset paging and
+// `search` over message and stack. No permission is applied; the host gates.
+export { errorsPage } from './errors/reader.js';
 
 function modeFromEnv(): Mode {
   const env = process.env.NODE_ENV;

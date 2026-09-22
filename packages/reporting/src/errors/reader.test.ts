@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { errorsPage as errorsPageFromEntry } from '../index.js';
 import { reportingErrors } from '../tables.js';
 import type { TestDb } from '../test/db.js';
 import { testDb } from '../test/db.js';
@@ -124,6 +125,13 @@ describe('errorsPage', () => {
 
     const none = await errorsPage(t.db, { search: 'nothing matches this' });
     expect(none.items).toHaveLength(0);
+  });
+
+  it('is reachable from the package entry, search included', async () => {
+    await seed({ fingerprint: fp(1), message: 'cannot read properties of undefined', stack: null });
+    await seed({ fingerprint: fp(2), message: 'network request failed', stack: null });
+    const page = await errorsPageFromEntry(t.db, { search: 'undefined' });
+    expect(page.items.map((r) => r.fingerprint)).toEqual([fp(1)]);
   });
 
   it('search treats % and _ literally, not as SQL wildcards', async () => {
