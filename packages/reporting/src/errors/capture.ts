@@ -43,6 +43,8 @@ export interface CaptureOptions {
   readonly event: (input: EventInput) => void;
   /** Stamped on a fresh group when a capture's own context supplies none. */
   readonly release?: string | null;
+  /** Extra env var names `heldSecrets` also redacts, beyond the estate's own KEYSTORE_*; see `ReportingOptions.redactEnvVars`. */
+  readonly redactEnvVars?: readonly string[];
 }
 
 const CAMEL_BOUNDARY = /([a-z0-9])([A-Z])/g;
@@ -193,7 +195,7 @@ export function createCapture(o: CaptureOptions) {
   return function captureError(error: unknown, context: CaptureContext = {}): void {
     try {
       const kind = resolveKind(error, context.kind);
-      const secrets = heldSecrets(process.env);
+      const secrets = heldSecrets(process.env, o.redactEnvVars);
       const message = truncateEnd(redactText(messageOf(error, kind), secrets), LIMITS.message);
       const rawStack = stackOf(error);
       const stack =
