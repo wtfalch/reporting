@@ -10,7 +10,12 @@ import type { Db } from '../types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS = join(here, '..', 'migrations');
-export const MIGRATION_SQL = ['0001_reporting.sql', '0002_analytics.sql', '0003_errors.sql']
+export const MIGRATION_SQL = [
+  '0001_reporting.sql',
+  '0002_analytics.sql',
+  '0003_errors.sql',
+  '0004_environment.sql',
+]
   .map((f) => readFileSync(join(MIGRATIONS, f), 'utf8'))
   .join('\n');
 

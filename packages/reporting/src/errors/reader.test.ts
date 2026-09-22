@@ -31,12 +31,14 @@ async function seed(over: {
   state?: 'open' | 'resolved' | 'ignored';
   message?: string;
   stack?: string | null;
+  environment?: string;
   lastSeenAt?: Date;
 }) {
   const when = over.lastSeenAt ?? new Date();
   await t.db.insert(reportingErrors).values({
     fingerprint: over.fingerprint,
     site: over.site ?? 'test',
+    environment: over.environment ?? null,
     kind: 'TypeError',
     message: over.message ?? 'boom',
     stack: over.stack ?? null,
@@ -84,6 +86,18 @@ describe('errorsPage', () => {
 
     const byRuntime = await errorsPage(t.db, { runtime: 'edge' });
     expect(byRuntime.items.map((r) => r.fingerprint)).toEqual([fp(2)]);
+  });
+
+  it('filters by environment, so preview noise stays out of a production view', async () => {
+    await seed({ fingerprint: fp(1), environment: 'production' });
+    await seed({ fingerprint: fp(2), environment: 'preview' });
+    await seed({ fingerprint: fp(3) });
+
+    const prod = await errorsPage(t.db, { environment: 'production' });
+    expect(prod.items.map((r) => r.fingerprint)).toEqual([fp(1)]);
+
+    const preview = await errorsPage(t.db, { environment: 'preview' });
+    expect(preview.items.map((r) => r.fingerprint)).toEqual([fp(2)]);
 
     const all = await errorsPage(t.db);
     expect(all.items).toHaveLength(3);

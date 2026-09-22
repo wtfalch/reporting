@@ -36,6 +36,8 @@ export interface CaptureOptions {
   readonly db: Db;
   readonly log: Logger;
   readonly site: string;
+  /** Stamped on every group the same way `release` is; see `ReportingOptions.environment`. */
+  readonly environment?: string | null;
   readonly now: () => Date;
   /** Runs the group upsert after the current unit of work, same as the writer's flush (writer.ts). */
   readonly defer: (fn: () => Promise<void>) => void;
@@ -125,6 +127,7 @@ interface GroupSample {
   readonly stack: string | null;
   readonly runtime: ErrorRuntime;
   readonly release: string | null;
+  readonly environment: string | null;
   readonly tenantId: string | null;
   readonly requestId: string | null;
   readonly at: Date;
@@ -154,6 +157,7 @@ async function upsertGroup(db: Db, site: string, s: GroupSample): Promise<void> 
       stack: s.stack,
       runtime: s.runtime,
       release: s.release,
+      environment: s.environment,
       firstSeenAt: s.at,
       lastSeenAt: s.at,
       occurrences: 1,
@@ -170,6 +174,7 @@ async function upsertGroup(db: Db, site: string, s: GroupSample): Promise<void> 
         tenantId: s.tenantId,
         requestId: s.requestId,
         release: s.release,
+        environment: s.environment,
         state: reopened,
         resolvedAt: sql`case when ${reportingErrors.state} in ('resolved', 'ignored') then null else ${reportingErrors.resolvedAt} end`,
         resolvedBy: sql`case when ${reportingErrors.state} in ('resolved', 'ignored') then null else ${reportingErrors.resolvedBy} end`,
@@ -211,6 +216,7 @@ export function createCapture(o: CaptureOptions) {
       const tenantId = validTenant(context.tenantId);
       const requestId = context.requestId ?? null;
       const release = context.release ?? o.release ?? null;
+      const environment = o.environment ?? null;
       const at = o.now();
 
       o.event({
@@ -229,6 +235,7 @@ export function createCapture(o: CaptureOptions) {
         stack,
         runtime,
         release,
+        environment,
         tenantId,
         requestId,
         at,
