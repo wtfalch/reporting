@@ -30,9 +30,22 @@ export const REDACTED = '[redacted: wrapping key]';
  * The exact strings that must never appear in anything sent anywhere: both
  * environment variables in full, and each key's base64 half on its own, since
  * a parser that split on the colon would report only that part.
+ *
+ * `extraEnvVars` is how a host extends the list beyond the estate's own
+ * KEYSTORE_* convention (gap issue #7): each named variable is read the same
+ * way `KEYSTORE_KEK_PREVIOUS` is -- comma-separated values allowed, each
+ * trimmed -- so a host's own rotation scheme is covered the same way the
+ * estate's is, with no new format to learn.
  */
-export function heldSecrets(env: Readonly<Record<string, string | undefined>>): string[] {
-  const specs = [env.KEYSTORE_KEK ?? '', ...(env.KEYSTORE_KEK_PREVIOUS ?? '').split(',')]
+export function heldSecrets(
+  env: Readonly<Record<string, string | undefined>>,
+  extraEnvVars: readonly string[] = [],
+): string[] {
+  const specs = [
+    env.KEYSTORE_KEK ?? '',
+    ...(env.KEYSTORE_KEK_PREVIOUS ?? '').split(','),
+    ...extraEnvVars.flatMap((name) => (env[name] ?? '').split(',')),
+  ]
     .map((spec) => spec.trim())
     .filter((spec) => spec.length > 0);
 

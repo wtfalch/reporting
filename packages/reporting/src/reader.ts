@@ -16,6 +16,7 @@ export async function eventsPage(db: Db, opts: EventsPageOptions = {}): Promise<
   if (opts.tenantId) conditions.push(eq(reportingEvents.tenantId, opts.tenantId));
   if (opts.site) conditions.push(eq(reportingEvents.site, opts.site));
   if (opts.requestId) conditions.push(eq(reportingEvents.requestId, opts.requestId));
+  if (opts.environment) conditions.push(eq(reportingEvents.environment, opts.environment));
   if (opts.after) {
     const { occurredAt, id } = opts.after;
     const keyset = or(
