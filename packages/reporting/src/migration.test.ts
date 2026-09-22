@@ -394,3 +394,16 @@ describe('the writer against the table', () => {
     });
   });
 });
+
+describe('0005_analytics_session_index.sql', () => {
+  it('applies twice without complaint', async () => {
+    await t.exec(MIGRATION_SQL);
+  });
+
+  it('creates the session-scoped partial index', async () => {
+    const rows = await t.query(
+      `select indexname from pg_indexes where tablename = 'reporting_analytics' and indexname = 'reporting_analytics_session_time_idx'`,
+    );
+    expect(rows).toHaveLength(1);
+  });
+});
