@@ -30,6 +30,7 @@ export const reportingEvents = pgTable(
     kind: text('kind').notNull(),
     kindNs: text('kind_ns').generatedAlwaysAs(sql`split_part(kind, '.', 1)`),
     site: text('site').notNull(),
+    environment: text('environment'),
     tenantId: uuid('tenant_id'),
     actorClass: text('actor_class'),
     actorId: text('actor_id'),
@@ -180,6 +181,7 @@ export const reportingErrors = pgTable(
   {
     fingerprint: text('fingerprint').primaryKey(),
     site: text('site').notNull(),
+    environment: text('environment'),
     kind: text('kind').notNull(),
     message: text('message').notNull(),
     stack: text('stack'),

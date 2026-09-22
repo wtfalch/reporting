@@ -15,6 +15,7 @@ export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<
   if (opts.site) conditions.push(eq(reportingErrors.site, opts.site));
   if (opts.state) conditions.push(eq(reportingErrors.state, opts.state));
   if (opts.runtime) conditions.push(eq(reportingErrors.runtime, opts.runtime));
+  if (opts.environment) conditions.push(eq(reportingErrors.environment, opts.environment));
   if (opts.after) {
     const { lastSeenAt, fingerprint } = opts.after;
     const keyset = or(

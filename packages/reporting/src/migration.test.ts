@@ -155,6 +155,52 @@ describe('0003_errors.sql', () => {
   });
 });
 
+describe('0004_environment.sql', () => {
+  const fp = (n: number) => n.toString(16).padStart(32, '0');
+  const errBase =
+    'insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at) values';
+
+  it('applies twice without complaint', async () => {
+    await t.exec(MIGRATION_SQL);
+  });
+
+  it('accepts a null or a slug-shaped environment on both tables', async () => {
+    await t.exec(`${base} ('info', 'a.b', 'test', 'm')`);
+    await t.exec(
+      `insert into reporting_events (level, kind, site, message, environment) values ('info', 'a.b', 'test', 'm', 'production')`,
+    );
+    await t.exec(`${errBase} ('${fp(20)}', 'test', 'TypeError', 'boom', 'server', now(), now())`);
+    await t.exec(
+      `insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at, environment) values ('${fp(21)}', 'test', 'TypeError', 'boom', 'server', now(), now(), 'preview')`,
+    );
+  });
+
+  it.each([
+    [
+      'an upper-case environment',
+      `insert into reporting_events (level, kind, site, message, environment) values ('info', 'a.b', 'test', 'm', 'Production')`,
+    ],
+    [
+      'an environment over 32 characters',
+      `insert into reporting_events (level, kind, site, message, environment) values ('info', 'a.b', 'test', 'm', repeat('a', 33))`,
+    ],
+    [
+      'an environment starting with a digit',
+      `insert into reporting_events (level, kind, site, message, environment) values ('info', 'a.b', 'test', 'm', '1prod')`,
+    ],
+  ])('refuses %s on reporting_events', async (_name, statement) => {
+    await expect(t.exec(statement)).rejects.toThrow();
+  });
+
+  it('refuses an upper-case environment on reporting_errors', async () => {
+    await expect(
+      t.exec(
+        `insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at, environment) values ('${fp(22)}', 'test', 'TypeError', 'boom', 'server', now(), now(), 'Production')`,
+      ),
+    ).rejects.toThrow();
+  });
+});
+
 describe('reporting_prune_events', () => {
   async function seed(daysAgo: number, message: string) {
     await t.exec(`${base} ('info', 'a.b', 'test', '${message}')`.replace('values', 'values'));
@@ -246,6 +292,45 @@ describe('the writer against the table', () => {
       targetId: 'ops',
       data: { type: 'forbidden', attempt: 2, ok: false, note: null },
     });
+  });
+
+  it('stamps environment on every event and every error group, and filters by it', async () => {
+    await t.exec('delete from reporting_events');
+    await t.exec('delete from reporting_errors');
+    const pending: Promise<void>[] = [];
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      environment: 'preview',
+      mode: 'test',
+      defer: (fn) => pending.push(fn()),
+    });
+    r.event({ kind: 'mail.write_refused', message: 'no' });
+    r.captureError(new TypeError('boom'));
+    await r.flush();
+    await Promise.all(pending.splice(0, pending.length));
+
+    const page = await r.events.page({});
+    expect(page.items.every((row) => row.environment === 'preview')).toBe(true);
+    expect((await r.events.page({ environment: 'preview' })).items).toHaveLength(2);
+    expect((await r.events.page({ environment: 'production' })).items).toHaveLength(0);
+
+    const errors = await t.query('select environment from reporting_errors');
+    expect(errors).toEqual([{ environment: 'preview' }]);
+  });
+
+  it('refuses a malformed environment at construction', () => {
+    expect(() =>
+      createReporting({
+        db: t.db,
+        log: memoryLog(),
+        site: 'test',
+        environment: 'Production',
+        mode: 'test',
+        defer: () => {},
+      }),
+    ).toThrow();
   });
 
   it('pages newest first with a stable keyset cursor across an insert', async () => {
