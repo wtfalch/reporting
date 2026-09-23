@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 — 2026-09-23
+
+- `errorDetail` and `setErrorState` are now exported from the package
+  entry. They were unreachable from `@wtfalch/reporting` since 0.3.0, the
+  same gap `errorsPage` had until 0.4.1 (#20). (#22)
+
 ## 0.4.1 — 2026-09-23
 
 - `errorsPage` is now exported from the package entry. It was unreachable
