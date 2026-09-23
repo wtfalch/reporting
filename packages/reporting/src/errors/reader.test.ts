@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { errorsPage as errorsPageFromEntry } from '../index.js';
+import {
+  errorDetail as errorDetailFromEntry,
+  errorsPage as errorsPageFromEntry,
+  setErrorState as setErrorStateFromEntry,
+} from '../index.js';
 import { reportingErrors } from '../tables.js';
 import type { TestDb } from '../test/db.js';
 import { testDb } from '../test/db.js';
@@ -163,6 +167,11 @@ describe('errorDetail', () => {
     expect((await errorDetail(t.db, fp(1)))?.fingerprint).toBe(fp(1));
     expect(await errorDetail(t.db, fp(99))).toBeNull();
   });
+
+  it('is reachable from the package entry', async () => {
+    await seed({ fingerprint: fp(1) });
+    expect((await errorDetailFromEntry(t.db, fp(1)))?.fingerprint).toBe(fp(1));
+  });
 });
 
 describe('setErrorState', () => {
@@ -200,5 +209,11 @@ describe('setErrorState', () => {
 
   it('returns null for an unknown fingerprint rather than throwing', async () => {
     await expect(setErrorState(t.db, fp(99), 'resolved', by)).resolves.toBeNull();
+  });
+
+  it('is reachable from the package entry', async () => {
+    await seed({ fingerprint: fp(1) });
+    const row = await setErrorStateFromEntry(t.db, fp(1), 'resolved', by);
+    expect(row?.state).toBe('resolved');
   });
 });
