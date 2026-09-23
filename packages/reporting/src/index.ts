@@ -33,6 +33,10 @@ export type { AnalyticsRow } from './analytics/write.js';
 // The error-group list, for a host's triage page: filters, keyset paging and
 // `search` over message and stack. No permission is applied; the host gates.
 export { errorsPage } from './errors/reader.js';
+// One error group by fingerprint, and the state move that opens, resolves
+// or reopens it -- the two calls a host's triage detail page makes once it
+// has a group from errorsPage. No permission is applied; the host gates.
+export { errorDetail, setErrorState } from './errors/reader.js';
 
 function modeFromEnv(): Mode {
   const env = process.env.NODE_ENV;
