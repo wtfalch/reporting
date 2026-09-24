@@ -3,8 +3,7 @@ name: Release
 # A tag publishes, through npm trusted publishing (OIDC): the job's identity
 # on this repository and this workflow is what npm trusts, so there is no
 # token to hold, rotate or leak. Nothing here deploys anything. It runs the
-# same gates CI runs, then hands the built package to npm with provenance,
-# which ties the published tarball to this commit and this workflow.
+# same gates CI runs, then hands the built package to npm.
 #
 # Two things trusted publishing needs, both here on purpose: `id-token: write`
 # for the OIDC exchange, and an npm CLI new enough to perform it (11.5.1 or
@@ -13,6 +12,17 @@ name: Release
 # token and never asks for the OIDC identity; 0.1.0's and 0.1.1's first
 # release runs failed with a 404 on PUT for exactly that reason, an org token
 # that could not publish a package it was never scoped to.
+#
+# No `--provenance`. npm verifies a provenance attestation against the source
+# repository and refuses one that points at a private repo ("Unsupported
+# GitHub Actions source repository visibility"). This repository was public
+# only so that provenance would be accepted; the flag is gone so the
+# repository can be private. The npm *package* stays public -- provenance is
+# about the repo behind it, not the package. Versions already published keep
+# their attestations; later ones have none. The same comment, and the same
+# reasoning, is in wtfalch/design's release workflow. Add it back, and make
+# the repository public again, if the attestation is ever worth more than the
+# source staying closed.
 
 on:
   push:
@@ -20,7 +30,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # the OIDC exchange, and provenance
+  id-token: write   # the OIDC exchange
 
 jobs:
   publish:
@@ -55,4 +65,4 @@ jobs:
       # is the npm CLI's, and the upgraded npm above is the one on PATH.
       - name: publish
         working-directory: packages/reporting
-        run: npm publish --access public --provenance --ignore-scripts
+        run: npm publish --access public --ignore-scripts
