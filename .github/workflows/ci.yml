@@ -2,10 +2,17 @@ name: CI
 
 # Publishing is release.yml, on a `v*` tag; this only checks.
 
+# Pull requests only: a squash merge lands the tree the PR run already
+# tested, so a second run on main repeated it. Run it on main by hand with
+# workflow_dispatch.
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same PR cancels the run it replaces.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
