@@ -20,7 +20,7 @@ nothing else.
 
 ## Status
 
-Published: yes, v0.5.0, 2026-09-23
+Published: yes, v0.5.1, 2026-09-28
 
 ## Install
 
