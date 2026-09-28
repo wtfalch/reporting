@@ -3,9 +3,12 @@
 The estate's operational event log and the housekeeping tick behind it: a
 writer that never fails a request, a claim protocol that needs no scheduler,
 and the readers an operator opens. Per-app Postgres, a host-supplied logger,
-a framework-neutral core and a Next entry. The design and its decisions are
-`docs/plans/reporting.md` and `docs/plans/reporting/core.md` in
-`wtfalch/app-template`.
+a framework-neutral core and a Next entry. The design and its decisions were
+originally `docs/plans/reporting.md` and `docs/plans/reporting/core.md` in
+`wtfalch/app-template`, which was archived 2026-09-24 and replaced by
+`foundry`; those docs are a historical record only. The design history for
+everything past 0.2.0 lives in this repo's own `docs/plans/errors.md` and
+`CHANGELOG.md`.
 
 Three records make up reporting on the estate. This package holds the
 **events** (what the system did: jobs, drains, alerts, an integration saying
