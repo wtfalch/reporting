@@ -15,6 +15,10 @@ row is transactional and its actor is unforgeable; an event row is best
 effort. The two share column names so a reader can walk between them, and
 nothing else.
 
+## Status
+
+Published: yes, v0.5.0, 2026-09-23
+
 ## Install
 
 ```sh
