@@ -36,10 +36,7 @@ jobs:
       - name: an npm that speaks trusted publishing
         run: npm install -g npm@latest && npm --version
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm check
       # The same check CI runs: the tarball is dist and nothing else. A
       # release is the one moment that matters, so it is asked here too.
       - name: the tarball holds dist and nothing else
