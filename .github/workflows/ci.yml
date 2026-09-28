@@ -2,14 +2,16 @@ name: CI
 
 # Publishing is release.yml, on a `v*` tag; this only checks.
 
-# Pull requests only: a squash merge lands the tree the PR run already
-# tested, so a second run on main repeated it. Run it on main by hand with
-# workflow_dispatch.
+# The gate before a publish: a `v*` tag push, same as release.yml. Pull
+# requests and pushes to the default branch run nothing remotely; the local
+# `pnpm check` is the merge gate. Run it by hand with workflow_dispatch.
 on:
-  pull_request:
+  push:
+    tags: ['v*']
   workflow_dispatch:
 
-# A newer push to the same PR cancels the run it replaces.
+# A newer push of the same tag, or a repeat dispatch on the same ref,
+# cancels the run it replaces.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
