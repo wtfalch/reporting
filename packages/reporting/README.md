@@ -143,6 +143,24 @@ every row regardless.
 
 ## Analytics (0.2.0)
 
+**Topology, today:** this package is a library, not a host. `createReporting({
+db, ... })` binds to whichever Postgres the calling app already has, and
+every table below lives in that one app's own database. `tenantId` scopes a
+read to one organisation *within* that single app's database — it does not
+let a console outside that app read anything. There is no cross-app or
+cross-company read: one company's own Boule sees only the rows its own
+process wrote.
+
+**Topology, target (settled 2026-09-28, planned after launch):** one shared
+reporting collector, org-scoped like `@wtfalch/files` and `@wtfalch/ai` —
+every app's `reporting` calls point at that one shared store instead of a
+database of its own, row-level scoping keeps one company's rows out of
+another's reads, Archon reads totals across every company, and each
+company's own Boule reads only its own organisation's slice. Not built yet:
+today's shape is the per-app library described above, and the shared-host
+change (or a lighter "point every app's `reporting` at one app's database"
+approach) is an open architecture question for whoever picks it up next.
+
 Three tables and two writers. `reporting_analytics` holds raw rows for a
 window (`analytics.retention_days`, default 90); `reporting_analytics_daily`
 and `reporting_analytics_weekly` hold counts with no identifier in any column
