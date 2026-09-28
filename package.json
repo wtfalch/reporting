@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.0.0",
   "engines": { "node": ">=22.0.0" },
   "scripts": {
+    "check": "pnpm build && pnpm lint && pnpm typecheck && pnpm test",
     "lint": "biome check .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

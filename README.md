@@ -13,7 +13,7 @@ The design it implements is `docs/plans/reporting.md` and
 
 ```
 pnpm install
-pnpm build && pnpm lint && pnpm typecheck && pnpm test
+pnpm check
 ```
 
 Tests run on PGlite in memory by default. With `TEST_DATABASE_URL` pointing
