@@ -1,0 +1,61 @@
+{
+  "name": "@wtfalch/reporting-service",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Org-scoped collector domain, storage and HTTP handler for the shared reporting service (issue #42). Scaffold only: schema, forced RLS and the real write/read surface land in later slices.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wtfalch/reporting",
+    "directory": "packages/service"
+  },
+  "private": true,
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    },
+    "./postgres": {
+      "types": "./dist/postgres.d.ts",
+      "default": "./dist/postgres.js"
+    },
+    "./migrations/*.sql": "./dist/migrations/*.sql",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "node -e \"throw new Error('The service implementation is private; publish packages/sdk only')\""
+  },
+  "dependencies": {
+    "@wtfalch/authz": "0.16.0",
+    "@wtfalch/contracts": "0.2.0",
+    "@wtfalch/reporting-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "postgres": "^3.4.5"
+  },
+  "peerDependenciesMeta": {
+    "postgres": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/node": "^22",
+    "postgres": "^3.4.5",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.6",
+    "zod": "^4.5.4"
+  }
+}
