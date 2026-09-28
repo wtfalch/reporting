@@ -8,8 +8,11 @@ do, and how is the product used.
 
 The package is in `packages/reporting`; its README says what it holds and how
 an app binds it, and its `PRIVACY.md` says what is stored and for how long.
-The design it implements is `docs/plans/reporting.md` and
-`docs/plans/reporting/core.md` in `wtfalch/app-template`.
+The design it implements was originally `docs/plans/reporting.md` and
+`docs/plans/reporting/core.md` in `wtfalch/app-template`, which was archived
+2026-09-24 and replaced by `foundry`; those docs are a historical record only.
+The design history for everything past 0.2.0 lives in this repo's own
+`docs/plans/errors.md` and `CHANGELOG.md`.
 
 ```
 pnpm install
