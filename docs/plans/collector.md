@@ -52,8 +52,8 @@ independently mergeable to `main`.
    (`packages/reporting/README.md`'s "Write" section). Over HTTP to a shared
    host, the writer keeps that never-fails-a-request contract by batching
    rows client-side and POSTing them, bounded at the existing per-process
-   cap (`registerShutdownFlush`'s own "bounded at 1,000" comment is the
-   number to carry over) — a slow or unreachable collector degrades to
+   cap (the `queueLimit` default of 1,000 in
+   `packages/reporting/src/types.ts` is the number to carry over) — a slow or unreachable collector degrades to
    dropped rows plus a logger error, never a blocked caller.
 
 4. **Keys-issued credentials.** Every app's SDK client authenticates to the
