@@ -260,13 +260,13 @@ describe('tenant scope', () => {
     await expect(errorDetail(t.db, fp(1), { tenantId: 'nope' })).rejects.toThrow(/tenantId/);
   });
 
-  it('treats an undefined tenantId the same as an absent one (unscoped)', async () => {
+  it('throws on a present but undefined tenantId, and leaves an absent one unscoped', async () => {
     await seedTenantGroup();
-    const absent = await errorsPage(t.db);
-    const undef = await errorsPage(t.db, { tenantId: undefined });
-    expect(undef.items).toEqual(absent.items);
-    expect(undef.items[0]?.message).toBe('boom');
-    expect((await errorDetail(t.db, fp(1), { tenantId: undefined }))?.message).toBe('boom');
+    await expect(errorsPage(t.db, { tenantId: undefined })).rejects.toThrow(/tenantId/);
+    await expect(errorDetail(t.db, fp(1), { tenantId: undefined })).rejects.toThrow(/tenantId/);
+    const absent = await errorsPage(t.db, {});
+    expect(absent.items[0]?.message).toBe('boom');
+    expect((await errorDetail(t.db, fp(1), {}))?.message).toBe('boom');
   });
 });
 

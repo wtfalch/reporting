@@ -12,12 +12,14 @@ function likePattern(term: string): string {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Scope is decided by presence, not truthiness: an empty string from a host
- * bug must not fall through to the unscoped read of every tenant's data, so
- * anything present and not a uuid throws.
+ * Scope is decided by whether the key is present, not by truthiness: an empty
+ * string or an explicit `undefined` from a host bug must not fall through to
+ * the unscoped read of every tenant's data, so a present key that is not a
+ * uuid throws. An absent key is unscoped.
  */
-function tenantScope(tenantId: string | undefined): string | undefined {
-  if (tenantId === undefined) return undefined;
+function tenantScope(opts: { readonly tenantId?: string }): string | undefined {
+  if (!('tenantId' in opts)) return undefined;
+  const { tenantId } = opts;
   if (typeof tenantId !== 'string' || !UUID.test(tenantId)) {
     throw new Error(
       'tenantId must be a uuid when given; refusing to fall back to an unscoped read',
@@ -72,7 +74,7 @@ export function errorsPage(
 ): Promise<ErrorsPage<TenantErrorRow>>;
 export function errorsPage(db: Db, opts?: ErrorsPageOptions): Promise<ErrorsPage>;
 export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<ErrorsPage> {
-  const tenantId = tenantScope(opts.tenantId);
+  const tenantId = tenantScope(opts);
   const limit = Math.max(1, Math.min(opts.limit ?? 50, 200));
   // With a tenant, the page is that tenant's own view: its rows join the
   // group and supply the counts and times, so ordering and paging follow the
@@ -167,7 +169,7 @@ export async function errorDetail(
   fingerprint: string,
   opts: { readonly tenantId?: string } = {},
 ): Promise<ReportingErrorRow | TenantErrorRow | null> {
-  const tenantId = tenantScope(opts.tenantId);
+  const tenantId = tenantScope(opts);
   if (tenantId !== undefined) {
     const scoped = await db
       .select(tenantColumns())

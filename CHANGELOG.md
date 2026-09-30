@@ -13,7 +13,7 @@
   data to another. `search` matches `kind` only, and `runtime` and `state` are
   not filtered in tenant scope.
 - Tenant scope is decided by whether `tenantId` is present. An empty or
-  non-uuid string throws instead of reading every tenant's data. `errorsPage`
+  non-uuid string, or an explicit `tenantId: undefined`, throws instead of reading every tenant's data. `errorsPage`
   and `errorDetail` are overloaded: without `tenantId` they return
   `ReportingErrorRow` as before, with it `TenantErrorRow`.
 - There is no backfill. The old table kept only the latest tenant per group, so
