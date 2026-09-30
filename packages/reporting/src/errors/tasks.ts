@@ -52,3 +52,52 @@ export async function pruneErrorsBatch(db: Db, days: number, batch: number): Pro
     return Number(row?.n ?? 0);
   });
 }
+
+/**
+ * The most open groups one site keeps. `pruneErrors` never deletes an open
+ * group, and the public ingest route lets anyone create one per distinct
+ * message, so without this ceiling `reporting_errors` grows without bound.
+ * Generous for a real app (a few thousand distinct live bugs is already an
+ * incident), tight enough that a flood cannot fill the disk.
+ */
+export const MAX_OPEN_ERRORS_PER_SITE = 5000;
+
+/**
+ * Evicts the least recently seen open groups beyond `MAX_OPEN_ERRORS_PER_SITE`
+ * per site (0007_errors_open_cap.sql). Needs that migration; a host that has
+ * not applied it sees this one task fail and `pruneErrors` unaffected.
+ */
+export const pruneOpenErrors: Task = {
+  name: 'reporting.prune_open_errors',
+  every: HOUR,
+  lease: 10 * 60 * 1000,
+  retry: 15 * 60 * 1000,
+  async run(ctx) {
+    let total = 0;
+    for (let i = 0; i < 20; i += 1) {
+      if (ctx.now().getTime() > ctx.deadline.getTime() - 30_000) break;
+      const n = await pruneOpenErrorsBatch(ctx.db, MAX_OPEN_ERRORS_PER_SITE, 5000);
+      total += n;
+      if (n < 5000) break;
+      if (!(await ctx.renew())) break;
+    }
+    if (total > 0) {
+      ctx.reporting.event({
+        kind: 'reporting.pruned_open_errors',
+        message: `evicted ${total} open error group(s) beyond the per-site cap`,
+        data: { rows: total, cap: MAX_OPEN_ERRORS_PER_SITE },
+      });
+    }
+  },
+};
+
+export async function pruneOpenErrorsBatch(db: Db, cap: number, batch: number): Promise<number> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`set local statement_timeout = '30s'`);
+    const result = await tx.execute(
+      sql`select reporting_prune_open_errors(${cap}::int, ${batch}::int) as n`,
+    );
+    const [row] = rowsOf(result);
+    return Number(row?.n ?? 0);
+  });
+}
