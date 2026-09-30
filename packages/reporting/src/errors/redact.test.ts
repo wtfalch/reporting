@@ -249,6 +249,58 @@ describe('redactPii: more credential shapes', () => {
     expect(redactPii('Cookie: a=b\nnext line')).toBe('Cookie: [redacted: cookie]\nnext line');
   });
 
+  const formCases: [string, string, string][] = [
+    ['postgres URL password', 'connect postgresql://u:pw@10.0.0.1/db failed', 'pw'],
+    ['URL password with dotted host', 'redis://admin:s3cr3t@cache.example.com:6379', 's3cr3t'],
+    ['URL password with empty user', 'redis://:s3cr3t@cache.internal:6379', 's3cr3t'],
+    ['JSON password', '{"password":"hunter2"}', 'hunter2'],
+    ['JSON password with spaces', '{"password":"hunter two"}', 'two'],
+    ['JSON token', '{"token":"abc123"}', 'abc123'],
+    ['uppercase JSON Token', '{"Token": "abc123"}', 'abc123'],
+    ['colon api_key', 'api_key: abc123', 'abc123'],
+    ['colon apikey', 'apikey: abc123', 'abc123'],
+    ['client_secret colon', 'client_secret: abc123', 'abc123'],
+    ['access_token JSON', '{"access_token":"abc123"}', 'abc123'],
+    ['refresh_token colon', 'refresh_token: abc123', 'abc123'],
+    ['x-api-key header', 'x-api-key: abc123', 'abc123'],
+    ['X-API-KEY header', 'X-API-KEY: abc123', 'abc123'],
+    ['percent-encoded password', 'q=password%3Dhunter2&x=1', 'hunter2'],
+    ['JSON cookie', '{"cookie":"a=b; sid=xyz"}', 'xyz'],
+    ['JSON set-cookie', '{"Set-Cookie":"sid=xyz"}', 'xyz'],
+  ];
+
+  for (const [name, input, leaked] of formCases) {
+    it(`redacts a ${name}`, () => {
+      const out = redactPii(input);
+      expect(out).not.toContain(leaked);
+      expect(out).toContain('[redacted');
+    });
+  }
+
+  it('keeps scheme and user in a URL with a password', () => {
+    expect(redactPii('postgresql://u:pw@10.0.0.1/db')).toBe(
+      'postgresql://u:[redacted: password]@10.0.0.1/db',
+    );
+    expect(redactPii('redis://:pw@h/0')).toBe('redis://:[redacted: password]@h/0');
+  });
+
+  it('leaves a URL without a password alone', () => {
+    expect(redactPii('https://example.com/a?b=c')).toBe('https://example.com/a?b=c');
+  });
+
+  it('redacts 17 KB of "-eyJ" in under 20 ms', () => {
+    const input = '-eyJ'.repeat(Math.ceil(17_000 / 4));
+    const start = performance.now();
+    const out = redactPii(input);
+    expect(performance.now() - start).toBeLessThan(20);
+    expect(out).toBe(input);
+  });
+
+  it('still redacts a JWT after a non-token character', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abc_def-ghi';
+    expect(redactPii(`t=(${jwt})`)).toBe('t=([redacted: token])');
+  });
+
   it('redacts 400k characters of "a." with no @ in under 200 ms', () => {
     const input = 'a.'.repeat(200_000);
     const start = performance.now();

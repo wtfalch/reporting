@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Error fingerprints now hash the redacted text. A group whose message or
+  stack contained PII (an email, a token, a URL password) gets a new
+  fingerprint on upgrade, so it starts a new row. The old row keeps its
+  unredacted text: operators should resolve the old rows.
+- Redaction also covers `scheme://user:password@host` URLs, labelled secrets
+  in JSON, colon and `%3D` forms, `x-api-key:` headers and a JSON `"cookie"`.
+
 ## 0.5.0 — 2026-09-23
 
 - `errorDetail` and `setErrorState` are now exported from the package

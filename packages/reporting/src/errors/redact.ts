@@ -86,6 +86,10 @@ export function redactText(text: string, secrets: readonly string[]): string {
  * like `lodash@4.17.20`, is left alone.
  */
 const PII_PATTERNS: readonly [RegExp, string][] = [
+  // URL userinfo: `scheme://user:pass@host` keeps scheme and user, drops the
+  // password (also `scheme://:pass@host`). Before the email rule, which would
+  // otherwise take `pass@host` and leave the user behind a wrong label.
+  [/\b([a-z][a-z0-9+.-]{0,30}:\/\/[^\s:@/]{0,64}:)[^\s@/]{1,256}@/gi, '$1[redacted: password]@'],
   // Every quantifier is bounded (RFC 5321 limits: 64-char local part, 63-char
   // labels), so a long run of `a.a.a.` with no `@` costs a fixed amount per
   // start position rather than a rescan of the rest of the string.
@@ -102,13 +106,21 @@ const PII_PATTERNS: readonly [RegExp, string][] = [
   [/("authorization"\s*:\s*)"(?:[^"\\]|\\.)*"/gi, '$1"[redacted: token]"'],
   // A Cookie or Set-Cookie header's value, to the end of the line.
   [/\b((?:set-)?cookie\s*:\s*)[^\r\n]+/gi, '$1[redacted: cookie]'],
-  // A labelled secret in a query string or form body: `password=...`.
+  // A JSON "cookie" / "set-cookie" value.
+  [/("(?:set-)?cookie"\s*:\s*)"(?:[^"\\]|\\.){0,2048}"/gi, '$1"[redacted: cookie]"'],
+  // A labelled secret in `=`, `:`, JSON (`"password":"x"`) or `%3D` form,
+  // including `x-api-key:` headers. A quoted value is taken whole.
   [
-    /((?:password|passwd|token|api[_-]?key|secret)["']?\s*=\s*)[^\s&;,'"]+/gi,
+    /((?:password|passwd|token|secret|api[_-]?key|apikey|client_secret|access_token|refresh_token)["']?\s*(?::|=|%3D)\s*)(?:"(?:[^"\\]|\\.){0,512}"|'[^']{0,512}'|[^\s&;,'"}]+)/gi,
     '$1[redacted: secret]',
   ],
   // JWT: three base64url segments, the first two starting with an encoded `{"`.
-  [/\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g, '[redacted: token]'],
+  // Linear: a start cannot sit inside a base64url run (the lookbehind), and
+  // each segment is capped, so a hostile `-eyJ-eyJ...` costs a fixed amount.
+  [
+    /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{5,2048}\.eyJ[A-Za-z0-9_-]{5,2048}\.[A-Za-z0-9_-]{0,2048}/g,
+    '[redacted: token]',
+  ],
   // An Authorization header's value, including its scheme.
   [/\b(authorization\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?[^\s,;'"]+/gi, '$1[redacted: token]'],
   // A scheme followed by a credential, anywhere.
