@@ -1,7 +1,12 @@
 # Changelog
 
-## 0.6.0 (unreleased)
+## 0.6.0 — unreleased
 
+- `pruneErrors` is now exported from `@wtfalch/reporting/housekeeping`. It
+  existed and was tested but could not be imported, so no host could register
+  it and `reporting_errors` was never pruned. It reads the same
+  `events.retention_days` window as `pruneEvents` and never touches an
+  'open' group. (#30)
 - `errorsPage` and `errorDetail` take `tenantId` and return that tenant's own
   occurrences, from the new `reporting_error_tenants` table
   (`migrations/0008_error_tenants.sql`). **Apply 0008 before upgrading.**

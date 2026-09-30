@@ -1,0 +1,49 @@
+{
+  "name": "@wtfalch/reporting-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Public client SDK and API types for the shared reporting collector service (issue #42). Unpublished scaffold: not wired to real ingest/read traffic yet.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wtfalch/reporting",
+    "directory": "packages/sdk"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "dist/client.d.ts",
+    "dist/client.js",
+    "dist/index.d.ts",
+    "dist/index.js",
+    "dist/transport.d.ts",
+    "dist/transport.js",
+    "dist/types.d.ts",
+    "dist/types.js"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    }
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.6"
+  }
+}
