@@ -4,11 +4,7 @@ import { createReporting } from '../index.js';
 import { reportingErrors } from '../tables.js';
 import { type TestDb, memoryLog, testDb } from '../test/db.js';
 import type { Reporting } from '../types.js';
-import {
-  MAX_OPEN_ERRORS_PER_SITE,
-  pruneOpenErrors,
-  pruneOpenErrorsBatch,
-} from './tasks.js';
+import { MAX_OPEN_ERRORS_PER_SITE, pruneOpenErrors, pruneOpenErrorsBatch } from './tasks.js';
 
 /**
  * `reporting_prune_errors` (the SQL function, 0003_errors.sql) and the
