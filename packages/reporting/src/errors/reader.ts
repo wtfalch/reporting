@@ -1,12 +1,37 @@
-import { and, desc, eq, getTableColumns, ilike, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, lt, or, sql } from 'drizzle-orm';
 import type { ErrorState } from '../schema.js';
-import type { ReportingErrorRow } from '../tables.js';
+import type { ReportingErrorRow, TenantErrorRow } from '../tables.js';
 import { reportingErrorTenants, reportingErrors } from '../tables.js';
 import type { Actor, Db, ErrorsPage, ErrorsPageOptions } from '../types.js';
 
 /** Postgres's default LIKE/ILIKE escape is backslash; escaping the pattern's own three special characters is what makes a search term match itself literally rather than as a wildcard pattern. */
 function likePattern(term: string): string {
   return `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * The columns a tenant may see of a shared group. The text and request facts
+ * of the group belong to whichever tenant hit it last, so they are null.
+ */
+function tenantColumns() {
+  return {
+    fingerprint: reportingErrors.fingerprint,
+    site: reportingErrors.site,
+    environment: reportingErrors.environment,
+    kind: reportingErrors.kind,
+    message: sql<null>`null`.as('message'),
+    stack: sql<null>`null`.as('stack'),
+    runtime: sql<null>`null`.as('runtime'),
+    release: sql<null>`null`.as('release'),
+    requestId: sql<null>`null`.as('request_id'),
+    resolvedBy: sql<null>`null`.as('resolved_by'),
+    state: reportingErrors.state,
+    resolvedAt: reportingErrors.resolvedAt,
+    tenantId: reportingErrorTenants.tenantId,
+    occurrences: reportingErrorTenants.occurrences,
+    firstSeenAt: reportingErrorTenants.firstSeenAt,
+    lastSeenAt: reportingErrorTenants.lastSeenAt,
+  };
 }
 
 /**
@@ -28,14 +53,16 @@ export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<
   const conditions = [];
   if (opts.site) conditions.push(eq(reportingErrors.site, opts.site));
   if (opts.state) conditions.push(eq(reportingErrors.state, opts.state));
-  if (opts.runtime) conditions.push(eq(reportingErrors.runtime, opts.runtime));
+  // `runtime` and the text are the latest sample from any tenant, so a tenant
+  // scope neither filters on the first nor searches the rest: either would be
+  // an oracle on another tenant's data. Search matches `kind` there.
+  if (opts.runtime && !opts.tenantId) conditions.push(eq(reportingErrors.runtime, opts.runtime));
   const search = opts.search?.trim().slice(0, 200);
   if (search) {
     const pattern = likePattern(search);
-    const clause = or(
-      ilike(reportingErrors.message, pattern),
-      ilike(reportingErrors.stack, pattern),
-    );
+    const clause = opts.tenantId
+      ? ilike(reportingErrors.kind, pattern)
+      : or(ilike(reportingErrors.message, pattern), ilike(reportingErrors.stack, pattern));
     if (clause) conditions.push(clause);
   }
   if (opts.environment) conditions.push(eq(reportingErrors.environment, opts.environment));
@@ -51,13 +78,7 @@ export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<
   const order = [desc(seen), desc(reportingErrors.fingerprint)] as const;
   const rows = opts.tenantId
     ? await db
-        .select({
-          ...getTableColumns(reportingErrors),
-          tenantId: reportingErrorTenants.tenantId,
-          occurrences: reportingErrorTenants.occurrences,
-          firstSeenAt: reportingErrorTenants.firstSeenAt,
-          lastSeenAt: reportingErrorTenants.lastSeenAt,
-        })
+        .select(tenantColumns())
         .from(reportingErrors)
         .innerJoin(
           reportingErrorTenants,
@@ -88,23 +109,18 @@ export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<
 
 /**
  * One row by fingerprint, or null when it is unknown. With `tenantId`, null
- * too when that tenant never hit it, and the counts and times are the
- * tenant's own, as in `errorsPage`.
+ * too when that tenant never hit it, and the row is a `TenantErrorRow`: the
+ * counts and times are the tenant's own and the shared text is null, as in
+ * `errorsPage`.
  */
 export async function errorDetail(
   db: Db,
   fingerprint: string,
   opts: { readonly tenantId?: string } = {},
-): Promise<ReportingErrorRow | null> {
+): Promise<ReportingErrorRow | TenantErrorRow | null> {
   if (opts.tenantId) {
     const scoped = await db
-      .select({
-        ...getTableColumns(reportingErrors),
-        tenantId: reportingErrorTenants.tenantId,
-        occurrences: reportingErrorTenants.occurrences,
-        firstSeenAt: reportingErrorTenants.firstSeenAt,
-        lastSeenAt: reportingErrorTenants.lastSeenAt,
-      })
+      .select(tenantColumns())
       .from(reportingErrors)
       .innerJoin(
         reportingErrorTenants,

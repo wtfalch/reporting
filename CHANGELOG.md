@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.0 (unreleased)
+
+- `errorsPage` and `errorDetail` take `tenantId` and return that tenant's own
+  occurrences, from the new `reporting_error_tenants` table
+  (`migrations/0008_error_tenants.sql`). **Apply 0008 before upgrading.**
+  Without it, capture still writes the group row and logs a warning, but no
+  tenant row, so a tenant-scoped page stays empty.
+- In tenant scope the shared group's `message`, `stack`, `runtime`, `release`,
+  `requestId` and `resolvedBy` are null (type `TenantErrorRow`): they come from
+  whichever tenant hit the group last, and showing them leaks one tenant's
+  data to another. `search` matches `kind` only and `runtime` is not filtered.
+- There is no backfill. The old table kept only the latest tenant per group, so
+  copying its counts would credit that tenant with everyone's history. Counts
+  per tenant start when 0.6.0 is deployed.
+
 ## 0.5.0 — 2026-09-23
 
 - `errorDetail` and `setErrorState` are now exported from the package

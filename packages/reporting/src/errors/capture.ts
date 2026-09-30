@@ -183,7 +183,12 @@ export type UpsertOutcome = 'created' | 'reopened' | 'unchanged';
  * share one transaction so the lock from the first is still held for the
  * second.
  */
-async function upsertGroup(db: Db, site: string, s: GroupSample): Promise<UpsertOutcome> {
+async function upsertGroup(
+  db: Db,
+  site: string,
+  s: GroupSample,
+  log: Logger,
+): Promise<UpsertOutcome> {
   return db.transaction(async (tx) => {
     const prior = await tx
       .select({ state: reportingErrors.state })
@@ -232,22 +237,33 @@ async function upsertGroup(db: Db, site: string, s: GroupSample): Promise<Upsert
       .returning({ created: sql<boolean>`(xmax = 0)` });
 
     if (s.tenantId) {
-      await tx
-        .insert(reportingErrorTenants)
-        .values({
-          fingerprint: s.fingerprint,
-          tenantId: s.tenantId,
-          occurrences: 1,
-          firstSeenAt: s.at,
-          lastSeenAt: s.at,
-        })
-        .onConflictDoUpdate({
-          target: [reportingErrorTenants.fingerprint, reportingErrorTenants.tenantId],
-          set: {
-            occurrences: sql`${reportingErrorTenants.occurrences} + 1`,
-            lastSeenAt: sql`greatest(${reportingErrorTenants.lastSeenAt}, ${s.at.toISOString()}::timestamptz)`,
-          },
+      // In a savepoint and fail-soft: a host that has not applied 0008 yet
+      // must still get the group row. The tenant row is the lesser loss.
+      try {
+        await tx.transaction(async (sp) => {
+          await sp
+            .insert(reportingErrorTenants)
+            .values({
+              fingerprint: s.fingerprint,
+              tenantId: s.tenantId as string,
+              occurrences: 1,
+              firstSeenAt: s.at,
+              lastSeenAt: s.at,
+            })
+            .onConflictDoUpdate({
+              target: [reportingErrorTenants.fingerprint, reportingErrorTenants.tenantId],
+              set: {
+                occurrences: sql`${reportingErrorTenants.occurrences} + 1`,
+                lastSeenAt: sql`greatest(${reportingErrorTenants.lastSeenAt}, ${s.at.toISOString()}::timestamptz)`,
+              },
+            });
         });
+      } catch (err) {
+        log.warn(
+          { err: describe(err), fingerprint: s.fingerprint },
+          'reporting: tenant row not written; is migration 0008 applied?',
+        );
+      }
     }
 
     if (written[0]?.created) return 'created';
@@ -315,7 +331,7 @@ export function createCapture(o: CaptureOptions) {
       };
       try {
         o.defer(() =>
-          upsertGroup(o.db, o.site, sample)
+          upsertGroup(o.db, o.site, sample, o.log)
             .then((outcome) => {
               if (outcome === 'unchanged' || !o.alert) return;
               try {

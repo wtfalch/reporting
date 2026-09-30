@@ -1,4 +1,4 @@
-import type { ReportingErrorRow } from '../tables.js';
+import type { ReportingErrorRow, TenantErrorRow } from '../tables.js';
 
 /**
  * The operator's error list: a plain table over the rows `errorsPage()`
@@ -9,7 +9,7 @@ import type { ReportingErrorRow } from '../tables.js';
  */
 
 export function ErrorsTable(props: {
-  readonly rows: readonly ReportingErrorRow[];
+  readonly rows: readonly (ReportingErrorRow | TenantErrorRow)[];
   readonly label?: string;
 }) {
   if (props.rows.length === 0) {
@@ -35,9 +35,9 @@ export function ErrorsTable(props: {
             <td>{row.kind}</td>
             <td
               style={{ maxWidth: '32rem', overflowWrap: 'anywhere', wordBreak: 'break-word' }}
-              title={row.message}
+              title={row.message ?? undefined}
             >
-              {row.message}
+              {row.message ?? '—'}
             </td>
             {/*
               `occurrences` is a bigint on the wire: postgres-js hands it back
@@ -49,7 +49,7 @@ export function ErrorsTable(props: {
             <td style={{ fontVariantNumeric: 'tabular-nums' }}>{String(row.occurrences)}</td>
             <td>{formatTimestamp(row.firstSeenAt)}</td>
             <td>{formatTimestamp(row.lastSeenAt)}</td>
-            <td>{row.runtime}</td>
+            <td>{row.runtime ?? '—'}</td>
             <td>{row.release ?? '—'}</td>
             <td>{row.state}</td>
           </tr>

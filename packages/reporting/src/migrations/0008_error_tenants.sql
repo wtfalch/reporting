@@ -27,12 +27,9 @@ create table if not exists reporting_error_tenants (
 create index if not exists reporting_error_tenants_tenant_idx
   on reporting_error_tenants (tenant_id, last_seen_at desc);
 
--- Existing groups already name one tenant (the latest); keep that much.
-insert into reporting_error_tenants (fingerprint, tenant_id, occurrences, first_seen_at, last_seen_at)
-select fingerprint, tenant_id, occurrences, first_seen_at, last_seen_at
-  from reporting_errors
- where tenant_id is not null
-on conflict do nothing;
+-- No backfill. reporting_errors holds only the latest tenant per group, so
+-- copying its occurrences to that tenant would credit it with every other
+-- tenant's history. Counts per tenant start at the deploy of 0.6.0.
 
 -- Select, insert and update for the runtime role; nothing that deletes.
 do $$

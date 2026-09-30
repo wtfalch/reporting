@@ -247,6 +247,23 @@ export type ReportingSettingRow = typeof reportingSettings.$inferSelect;
 export type ReportingTenantSettingRow = typeof reportingTenantSettings.$inferSelect;
 export type ReportingErrorRow = typeof reportingErrors.$inferSelect;
 
+/**
+ * A group as a tenant sees it: the shared group's text and request facts come
+ * from whichever tenant hit it last, so they are null here. Counts, times and
+ * `tenantId` are the tenant's own (reporting_error_tenants).
+ */
+export type TenantErrorRow = Omit<
+  ReportingErrorRow,
+  'message' | 'stack' | 'runtime' | 'release' | 'requestId' | 'resolvedBy'
+> & {
+  readonly message: null;
+  readonly stack: null;
+  readonly runtime: null;
+  readonly release: null;
+  readonly requestId: null;
+  readonly resolvedBy: null;
+};
+
 export const tables = {
   events: reportingEvents,
   tasks: reportingTasks,

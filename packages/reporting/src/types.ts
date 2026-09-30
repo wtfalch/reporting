@@ -9,7 +9,7 @@ import type {
 import type { Device } from './analytics/schema.js';
 import type { Actor, ErrorRuntime, ErrorState, EventInput, FlatData, Level } from './schema.js';
 import type { TenantRetentionKey } from './settings.js';
-import type { ReportingErrorRow, ReportingEventRow, tables } from './tables.js';
+import type { ReportingErrorRow, ReportingEventRow, TenantErrorRow, tables } from './tables.js';
 
 /**
  * The host's drizzle handle, whatever driver it runs on. postgres-js in the
@@ -119,15 +119,15 @@ export interface ErrorsPageOptions {
   readonly site?: string;
   readonly state?: ErrorState;
   readonly runtime?: ErrorRuntime;
-  /** A case-insensitive substring match against `message` or `stack`, for triaging an incident by grepping the group list. Capped at 200 characters. */
+  /** A case-insensitive substring match against `message` or `stack`, for triaging an incident by grepping the group list. Capped at 200 characters. With `tenantId`, it matches `kind` only: the shared message and stack are not the tenant's to search. */
   readonly search?: string;
   readonly environment?: string;
-  /** Only groups this tenant hit, with `occurrences`, `firstSeenAt`, `lastSeenAt` and `tenantId` taken from the tenant's own record (migration 0008), not the shared group's. `message` and `stack` are still the group's latest sample, from whichever tenant. */
+  /** Only groups this tenant hit, as `TenantErrorRow`s: `occurrences`, `firstSeenAt`, `lastSeenAt` and `tenantId` come from the tenant's own record (migration 0008), and `message`, `stack`, `runtime`, `release`, `requestId` and `resolvedBy` are null, because the shared group holds them from whichever tenant hit it last. */
   readonly tenantId?: string;
 }
 
 export interface ErrorsPage {
-  readonly items: readonly ReportingErrorRow[];
+  readonly items: readonly (ReportingErrorRow | TenantErrorRow)[];
   readonly next: { readonly lastSeenAt: Date; readonly fingerprint: string } | null;
 }
 

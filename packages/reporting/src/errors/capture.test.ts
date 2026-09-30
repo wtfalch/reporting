@@ -575,6 +575,67 @@ describe('two tenants hitting one fingerprint', () => {
     expect((await errorDetail(t.db, fingerprint, { tenantId: B }))?.occurrences).toBe(1);
   });
 
+  it('a tenant sees none of the shared text or request facts, and cannot search them', async () => {
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+    });
+    await reset();
+    await t.exec('delete from reporting_error_tenants');
+    r.captureError(new TypeError('secret-from-B'), {
+      tenantId: B,
+      requestId: 'req-B',
+      release: 'rel-B',
+    });
+    await h.drain();
+    const fingerprint = (await errorsPage(t.db)).items[0]?.fingerprint as string;
+    await t.exec(
+      "update reporting_errors set state = 'resolved', resolved_at = now(), resolved_by = 'human:x'",
+    );
+    // Tenant A hit the same group earlier; the shared sample is B's.
+    await t.exec(
+      `insert into reporting_error_tenants (fingerprint, tenant_id, first_seen_at, last_seen_at) values ('${fingerprint}', '${A}', now(), now())`,
+    );
+    const nulls = {
+      message: null,
+      stack: null,
+      runtime: null,
+      release: null,
+      requestId: null,
+      resolvedBy: null,
+    };
+    const page = await errorsPage(t.db, { tenantId: A });
+    expect(page.items[0]).toMatchObject({ tenantId: A, ...nulls });
+    expect(await errorDetail(t.db, fingerprint, { tenantId: A })).toMatchObject(nulls);
+    expect((await errorsPage(t.db, { tenantId: A, search: 'secret-from-B' })).items).toHaveLength(
+      0,
+    );
+    expect((await errorsPage(t.db, { tenantId: A, search: 'TypeError' })).items).toHaveLength(1);
+  });
+
+  it('keeps the group row when the tenant table is missing', async () => {
+    await reset();
+    await t.exec('drop table reporting_error_tenants');
+    try {
+      const log = memoryLog();
+      const h = deferHarness();
+      const r = createReporting({ db: t.db, log, site: 'test', mode: 'test', defer: h.defer });
+      r.captureError(new TypeError('no tenant table'), { tenantId: A });
+      await h.drain();
+      const all = await errorsPage(t.db);
+      expect(all.items).toHaveLength(1);
+      expect(log.lines.some((l) => l.level === 'warn' && /0008/.test(l.msg ?? ''))).toBe(true);
+    } finally {
+      await t.exec(
+        'create table reporting_error_tenants (fingerprint text not null references reporting_errors (fingerprint) on delete cascade, tenant_id uuid not null, occurrences bigint not null default 1, first_seen_at timestamptz not null default now(), last_seen_at timestamptz not null default now(), primary key (fingerprint, tenant_id))',
+      );
+    }
+  });
+
   it('a tenant that never hit the error gets an empty page and a null detail', async () => {
     await captureFor([A]);
     const fingerprint = (await errorsPage(t.db)).items[0]?.fingerprint as string;
