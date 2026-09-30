@@ -300,3 +300,4 @@ export function createHousekeeping(options: HousekeepingOptions): Housekeeping {
 
 export { pruneEvents, retentionLag } from './tasks.js';
 export { pruneAnalytics, rollupAnalytics, rollupAnalyticsWeekly } from '../analytics/tasks.js';
+export { pruneErrors } from '../errors/tasks.js';

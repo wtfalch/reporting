@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — unreleased
 
+- `pruneErrors` is now exported from `@wtfalch/reporting/housekeeping`. It
+  existed and was tested but could not be imported, so no host could register
+  it and `reporting_errors` was never pruned. It reads the same
+  `events.retention_days` window as `pruneEvents` and never touches an
+  'open' group. (#30)
 - Error fingerprints now hash the redacted text. A group whose message or
   stack contained PII (an email, a token, a URL password) gets a new
   fingerprint on upgrade, so it starts a new row. The old row keeps its
