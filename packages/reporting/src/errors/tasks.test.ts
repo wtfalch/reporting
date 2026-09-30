@@ -1,10 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createHousekeeping } from '../housekeeping/index.js';
+import { createHousekeeping, pruneErrors } from '../housekeeping/index.js';
 import { createReporting } from '../index.js';
 import { reportingErrors } from '../tables.js';
 import { type TestDb, memoryLog, testDb } from '../test/db.js';
 import type { Reporting } from '../types.js';
-import { pruneErrors } from './tasks.js';
 
 /**
  * `reporting_prune_errors` (the SQL function, 0003_errors.sql) and the
