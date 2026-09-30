@@ -7,6 +7,23 @@
   it and `reporting_errors` was never pruned. It reads the same
   `events.retention_days` window as `pruneEvents` and never touches an
   'open' group. (#30)
+- `errorsPage` and `errorDetail` take `tenantId` and return that tenant's own
+  occurrences, from the new `reporting_error_tenants` table
+  (`migrations/0008_error_tenants.sql`). **Apply 0008 before upgrading.**
+  Without it, capture still writes the group row and logs a warning, but no
+  tenant row, so a tenant-scoped page stays empty.
+- In tenant scope the shared group's `message`, `stack`, `runtime`, `release`,
+  `requestId`, `resolvedBy`, `state` and `resolvedAt` are null (type `TenantErrorRow`): they come from
+  whichever tenant hit the group last, and showing them leaks one tenant's
+  data to another. `search` matches `kind` only, and `runtime` and `state` are
+  not filtered in tenant scope.
+- Tenant scope is decided by whether `tenantId` is present. An empty or
+  non-uuid string, or an explicit `tenantId: undefined`, throws instead of reading every tenant's data. `errorsPage`
+  and `errorDetail` are overloaded: without `tenantId` they return
+  `ReportingErrorRow` as before, with it `TenantErrorRow`.
+- There is no backfill. The old table kept only the latest tenant per group, so
+  copying its counts would credit that tenant with everyone's history. Counts
+  per tenant start when 0.6.0 is deployed.
 - Error fingerprints now hash the redacted text. A group whose message or
   stack contained PII (an email, a token, a URL password) gets a new
   fingerprint on upgrade, so it starts a new row. The old row keeps its

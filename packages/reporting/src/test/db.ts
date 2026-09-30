@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
@@ -10,15 +10,11 @@ import type { Db } from '../types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS = join(here, '..', 'migrations');
-export const MIGRATION_SQL = [
-  '0001_reporting.sql',
-  '0002_analytics.sql',
-  '0003_errors.sql',
-  '0004_environment.sql',
-  '0005_analytics_session_index.sql',
-  '0006_tenant_settings.sql',
-  '0007_errors_open_cap.sql',
-]
+// Every migration on disk, in name order, so a new one is picked up without
+// an edit here (a hand-kept list conflicts between branches that each add one).
+export const MIGRATION_SQL = readdirSync(MIGRATIONS)
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
   .map((f) => readFileSync(join(MIGRATIONS, f), 'utf8'))
   .join('\n');
 

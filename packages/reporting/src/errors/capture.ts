@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { ERROR_RUNTIMES, KIND_PATTERN, LIMITS } from '../schema.js';
 import type { ErrorRuntime } from '../schema.js';
-import { reportingErrors } from '../tables.js';
+import { reportingErrorTenants, reportingErrors } from '../tables.js';
 import type { AlertFinding, CaptureContext, Db, EventInput, Logger } from '../types.js';
 import { describe } from '../writer.js';
 import { errorKind, fingerprint } from './fingerprint.js';
@@ -186,7 +186,12 @@ export type UpsertOutcome = 'created' | 'reopened' | 'unchanged';
  * share one transaction so the lock from the first is still held for the
  * second.
  */
-async function upsertGroup(db: Db, site: string, s: GroupSample): Promise<UpsertOutcome> {
+async function upsertGroup(
+  db: Db,
+  site: string,
+  s: GroupSample,
+  log: Logger,
+): Promise<UpsertOutcome> {
   return db.transaction(async (tx) => {
     const prior = await tx
       .select({ state: reportingErrors.state })
@@ -233,6 +238,36 @@ async function upsertGroup(db: Db, site: string, s: GroupSample): Promise<Upsert
       // false when it took the on-conflict-update path -- the standard,
       // race-free way to tell the two apart from an upsert's own result.
       .returning({ created: sql<boolean>`(xmax = 0)` });
+
+    if (s.tenantId) {
+      // In a savepoint and fail-soft: a host that has not applied 0008 yet
+      // must still get the group row. The tenant row is the lesser loss.
+      try {
+        await tx.transaction(async (sp) => {
+          await sp
+            .insert(reportingErrorTenants)
+            .values({
+              fingerprint: s.fingerprint,
+              tenantId: s.tenantId as string,
+              occurrences: 1,
+              firstSeenAt: s.at,
+              lastSeenAt: s.at,
+            })
+            .onConflictDoUpdate({
+              target: [reportingErrorTenants.fingerprint, reportingErrorTenants.tenantId],
+              set: {
+                occurrences: sql`${reportingErrorTenants.occurrences} + 1`,
+                lastSeenAt: sql`greatest(${reportingErrorTenants.lastSeenAt}, ${s.at.toISOString()}::timestamptz)`,
+              },
+            });
+        });
+      } catch (err) {
+        log.warn(
+          { err: describe(err), fingerprint: s.fingerprint },
+          'reporting: tenant row not written; is migration 0008 applied?',
+        );
+      }
+    }
 
     if (written[0]?.created) return 'created';
     return priorState === 'resolved' || priorState === 'ignored' ? 'reopened' : 'unchanged';
@@ -311,7 +346,7 @@ export function createCapture(o: CaptureOptions) {
       };
       try {
         o.defer(() =>
-          upsertGroup(o.db, o.site, sample)
+          upsertGroup(o.db, o.site, sample, o.log)
             .then((outcome) => {
               if (outcome === 'unchanged' || !o.alert) return;
               try {

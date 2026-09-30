@@ -9,7 +9,7 @@ import type {
 import type { Device } from './analytics/schema.js';
 import type { Actor, ErrorRuntime, ErrorState, EventInput, FlatData, Level } from './schema.js';
 import type { TenantRetentionKey } from './settings.js';
-import type { ReportingErrorRow, ReportingEventRow, tables } from './tables.js';
+import type { ReportingErrorRow, ReportingEventRow, TenantErrorRow, tables } from './tables.js';
 
 /**
  * The host's drizzle handle, whatever driver it runs on. postgres-js in the
@@ -119,13 +119,15 @@ export interface ErrorsPageOptions {
   readonly site?: string;
   readonly state?: ErrorState;
   readonly runtime?: ErrorRuntime;
-  /** A case-insensitive substring match against `message` or `stack`, for triaging an incident by grepping the group list. Capped at 200 characters. */
+  /** A case-insensitive substring match against `message` or `stack`, for triaging an incident by grepping the group list. Capped at 200 characters. With `tenantId`, it matches `kind` only: the shared message and stack are not the tenant's to search. */
   readonly search?: string;
   readonly environment?: string;
+  /** Only groups this tenant hit, as `TenantErrorRow`s: `occurrences`, `firstSeenAt`, `lastSeenAt` and `tenantId` come from the tenant's own record (migration 0008), and `message`, `stack`, `runtime`, `release`, `requestId`, `resolvedBy`, `state` and `resolvedAt` are null, because the shared group holds them from whichever tenant hit it last. `state` is ignored as a filter in tenant scope. Scope is decided by presence: an absent key is unscoped, any present value, `undefined` included, must be a uuid or the call throws. */
+  readonly tenantId?: string;
 }
 
-export interface ErrorsPage {
-  readonly items: readonly ReportingErrorRow[];
+export interface ErrorsPage<Row = ReportingErrorRow | TenantErrorRow> {
+  readonly items: readonly Row[];
   readonly next: { readonly lastSeenAt: Date; readonly fingerprint: string } | null;
 }
 
