@@ -209,3 +209,51 @@ describe('redactPii', () => {
     expect(redactPii(text)).toBe(text);
   });
 });
+
+describe('redactPii: more credential shapes', () => {
+  const cases: [string, string, string][] = [
+    ['Stripe live key', 'key sk_live_abcdefghijklmnop1234 end', 'sk_live_'],
+    ['Stripe test key', 'key sk_test_abcdefghijklmnop1234 end', 'sk_test_'],
+    ['Stripe restricted key', 'key rk_live_abcdefghijklmnop1234 end', 'rk_live_'],
+    ['Google API key', 'key AIzaSyA1234567890abcdefghijklmnopqrstuv end', 'AIza'],
+    ['AWS temporary key', 'key ASIAABCDEFGHIJKLMNOP end', 'ASIAABCDEFGHIJKLMNOP'],
+    [
+      'PEM private key',
+      'k -----BEGIN RSA PRIVATE KEY-----\nMIIEabc\ndef\n-----END RSA PRIVATE KEY----- end',
+      'MIIEabc',
+    ],
+    ['unterminated PEM', 'k -----BEGIN PRIVATE KEY-----\nMIIEabc\ndef', 'MIIEabc'],
+    ['password pair', 'POST body password=hunter2&user=x', 'hunter2'],
+    ['passwd pair', 'passwd=hunter2 next', 'hunter2'],
+    ['token pair in a query', 'GET /x?token=abc123&y=1', 'abc123'],
+    ['api_key pair', 'GET /x?api_key=abc123&y=1', 'abc123'],
+    ['secret pair', 'client_secret=abc123;', 'abc123'],
+    ['Cookie header', 'Cookie: session=abc123; theme=dark\nnext', 'abc123'],
+    ['Set-Cookie header', 'Set-Cookie: sid=abc123; HttpOnly', 'abc123'],
+    ['short JSON authorization', '{"authorization":"Bearer x"}', 'Bearer x'],
+    ['long JSON authorization', `{"authorization":"Bearer ${'z'.repeat(500)}"}`, 'zzzz'],
+  ];
+
+  for (const [name, input, leaked] of cases) {
+    it(`redacts a ${name}`, () => {
+      const out = redactPii(input);
+      expect(out).not.toContain(leaked);
+      expect(out).toContain('[redacted');
+    });
+  }
+
+  it('keeps the text around a redacted pair', () => {
+    expect(redactPii('POST body password=hunter2&user=x')).toBe(
+      'POST body password=[redacted: secret]&user=x',
+    );
+    expect(redactPii('Cookie: a=b\nnext line')).toBe('Cookie: [redacted: cookie]\nnext line');
+  });
+
+  it('redacts 400k characters of "a." with no @ in under 200 ms', () => {
+    const input = 'a.'.repeat(200_000);
+    const start = performance.now();
+    const out = redactPii(input);
+    expect(performance.now() - start).toBeLessThan(200);
+    expect(out).toBe(input);
+  });
+});

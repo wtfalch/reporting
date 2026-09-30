@@ -86,7 +86,27 @@ export function redactText(text: string, secrets: readonly string[]): string {
  * like `lodash@4.17.20`, is left alone.
  */
 const PII_PATTERNS: readonly [RegExp, string][] = [
-  [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/g, '[redacted: email]'],
+  // Every quantifier is bounded (RFC 5321 limits: 64-char local part, 63-char
+  // labels), so a long run of `a.a.a.` with no `@` costs a fixed amount per
+  // start position rather than a rescan of the rest of the string.
+  [
+    /\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}\b/g,
+    '[redacted: email]',
+  ],
+  // A PEM private key block; an unterminated one (a truncated stack) runs to the end.
+  [
+    /-----BEGIN [A-Z ]{0,30}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,30}PRIVATE KEY-----|$)/g,
+    '[redacted: private key]',
+  ],
+  // The JSON form of an Authorization header, whatever the value's length.
+  [/("authorization"\s*:\s*)"(?:[^"\\]|\\.)*"/gi, '$1"[redacted: token]"'],
+  // A Cookie or Set-Cookie header's value, to the end of the line.
+  [/\b((?:set-)?cookie\s*:\s*)[^\r\n]+/gi, '$1[redacted: cookie]'],
+  // A labelled secret in a query string or form body: `password=...`.
+  [
+    /((?:password|passwd|token|api[_-]?key|secret)["']?\s*=\s*)[^\s&;,'"]+/gi,
+    '$1[redacted: secret]',
+  ],
   // JWT: three base64url segments, the first two starting with an encoded `{"`.
   [/\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g, '[redacted: token]'],
   // An Authorization header's value, including its scheme.
@@ -95,7 +115,7 @@ const PII_PATTERNS: readonly [RegExp, string][] = [
   [/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted: token]'],
   // Well-known prefixed token formats.
   [
-    /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})\b/g,
+    /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|(?:AKIA|ASIA)[0-9A-Z]{16}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{30,})\b/g,
     '[redacted: token]',
   ],
 ];
