@@ -222,6 +222,22 @@ export const reportingErrors = pgTable(
   ],
 );
 
+/** One row per (fingerprint, tenant): that tenant's own occurrences of a shared error group; mirrored from migrations/0008_error_tenants.sql. */
+export const reportingErrorTenants = pgTable(
+  'reporting_error_tenants',
+  {
+    fingerprint: text('fingerprint').notNull(),
+    tenantId: uuid('tenant_id').notNull(),
+    occurrences: bigint('occurrences', { mode: 'number' }).notNull().default(1),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    primaryKey({ name: 'reporting_error_tenants_pkey', columns: [t.fingerprint, t.tenantId] }),
+    index('reporting_error_tenants_tenant_idx').on(t.tenantId, t.lastSeenAt.desc()),
+  ],
+);
+
 export type ReportingEventRow = typeof reportingEvents.$inferSelect;
 export type ReportingAnalyticsRow = typeof reportingAnalytics.$inferSelect;
 export type ReportingAnalyticsDailyRow = typeof reportingAnalyticsDaily.$inferSelect;
@@ -240,4 +256,5 @@ export const tables = {
   analyticsDaily: reportingAnalyticsDaily,
   analyticsWeekly: reportingAnalyticsWeekly,
   errors: reportingErrors,
+  errorTenants: reportingErrorTenants,
 };

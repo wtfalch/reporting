@@ -122,6 +122,8 @@ export interface ErrorsPageOptions {
   /** A case-insensitive substring match against `message` or `stack`, for triaging an incident by grepping the group list. Capped at 200 characters. */
   readonly search?: string;
   readonly environment?: string;
+  /** Only groups this tenant hit, with `occurrences`, `firstSeenAt`, `lastSeenAt` and `tenantId` taken from the tenant's own record (migration 0008), not the shared group's. `message` and `stack` are still the group's latest sample, from whichever tenant. */
+  readonly tenantId?: string;
 }
 
 export interface ErrorsPage {

@@ -1,7 +1,7 @@
-import { and, desc, eq, ilike, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, ilike, lt, or, sql } from 'drizzle-orm';
 import type { ErrorState } from '../schema.js';
 import type { ReportingErrorRow } from '../tables.js';
-import { reportingErrors } from '../tables.js';
+import { reportingErrorTenants, reportingErrors } from '../tables.js';
 import type { Actor, Db, ErrorsPage, ErrorsPageOptions } from '../types.js';
 
 /** Postgres's default LIKE/ILIKE escape is backslash; escaping the pattern's own three special characters is what makes a search term match itself literally rather than as a wildcard pattern. */
@@ -21,6 +21,10 @@ function likePattern(term: string): string {
  */
 export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<ErrorsPage> {
   const limit = Math.max(1, Math.min(opts.limit ?? 50, 200));
+  // With a tenant, the page is that tenant's own view: its rows join the
+  // group and supply the counts and times, so ordering and paging follow the
+  // tenant's last occurrence, not anyone else's.
+  const seen = opts.tenantId ? reportingErrorTenants.lastSeenAt : reportingErrors.lastSeenAt;
   const conditions = [];
   if (opts.site) conditions.push(eq(reportingErrors.site, opts.site));
   if (opts.state) conditions.push(eq(reportingErrors.state, opts.state));
@@ -38,17 +42,39 @@ export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<
   if (opts.after) {
     const { lastSeenAt, fingerprint } = opts.after;
     const keyset = or(
-      lt(reportingErrors.lastSeenAt, lastSeenAt),
-      and(eq(reportingErrors.lastSeenAt, lastSeenAt), lt(reportingErrors.fingerprint, fingerprint)),
+      lt(seen, lastSeenAt),
+      and(eq(seen, lastSeenAt), lt(reportingErrors.fingerprint, fingerprint)),
     );
     if (keyset) conditions.push(keyset);
   }
-  const rows = await db
-    .select()
-    .from(reportingErrors)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(reportingErrors.lastSeenAt), desc(reportingErrors.fingerprint))
-    .limit(limit + 1);
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const order = [desc(seen), desc(reportingErrors.fingerprint)] as const;
+  const rows = opts.tenantId
+    ? await db
+        .select({
+          ...getTableColumns(reportingErrors),
+          tenantId: reportingErrorTenants.tenantId,
+          occurrences: reportingErrorTenants.occurrences,
+          firstSeenAt: reportingErrorTenants.firstSeenAt,
+          lastSeenAt: reportingErrorTenants.lastSeenAt,
+        })
+        .from(reportingErrors)
+        .innerJoin(
+          reportingErrorTenants,
+          and(
+            eq(reportingErrorTenants.fingerprint, reportingErrors.fingerprint),
+            eq(reportingErrorTenants.tenantId, opts.tenantId),
+          ),
+        )
+        .where(where)
+        .orderBy(...order)
+        .limit(limit + 1)
+    : await db
+        .select()
+        .from(reportingErrors)
+        .where(where)
+        .orderBy(...order)
+        .limit(limit + 1);
   const items = rows.slice(0, limit);
   const last = items.at(-1);
   return {
@@ -60,8 +86,37 @@ export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<
   };
 }
 
-/** One row by fingerprint, or null when it is unknown. */
-export async function errorDetail(db: Db, fingerprint: string): Promise<ReportingErrorRow | null> {
+/**
+ * One row by fingerprint, or null when it is unknown. With `tenantId`, null
+ * too when that tenant never hit it, and the counts and times are the
+ * tenant's own, as in `errorsPage`.
+ */
+export async function errorDetail(
+  db: Db,
+  fingerprint: string,
+  opts: { readonly tenantId?: string } = {},
+): Promise<ReportingErrorRow | null> {
+  if (opts.tenantId) {
+    const scoped = await db
+      .select({
+        ...getTableColumns(reportingErrors),
+        tenantId: reportingErrorTenants.tenantId,
+        occurrences: reportingErrorTenants.occurrences,
+        firstSeenAt: reportingErrorTenants.firstSeenAt,
+        lastSeenAt: reportingErrorTenants.lastSeenAt,
+      })
+      .from(reportingErrors)
+      .innerJoin(
+        reportingErrorTenants,
+        and(
+          eq(reportingErrorTenants.fingerprint, reportingErrors.fingerprint),
+          eq(reportingErrorTenants.tenantId, opts.tenantId),
+        ),
+      )
+      .where(eq(reportingErrors.fingerprint, fingerprint))
+      .limit(1);
+    return scoped[0] ?? null;
+  }
   const rows = await db
     .select()
     .from(reportingErrors)

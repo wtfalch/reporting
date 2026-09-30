@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { ERROR_RUNTIMES, KIND_PATTERN, LIMITS } from '../schema.js';
 import type { ErrorRuntime } from '../schema.js';
-import { reportingErrors } from '../tables.js';
+import { reportingErrorTenants, reportingErrors } from '../tables.js';
 import type { AlertFinding, CaptureContext, Db, EventInput, Logger } from '../types.js';
 import { describe } from '../writer.js';
 import { errorKind, fingerprint } from './fingerprint.js';
@@ -230,6 +230,25 @@ async function upsertGroup(db: Db, site: string, s: GroupSample): Promise<Upsert
       // false when it took the on-conflict-update path -- the standard,
       // race-free way to tell the two apart from an upsert's own result.
       .returning({ created: sql<boolean>`(xmax = 0)` });
+
+    if (s.tenantId) {
+      await tx
+        .insert(reportingErrorTenants)
+        .values({
+          fingerprint: s.fingerprint,
+          tenantId: s.tenantId,
+          occurrences: 1,
+          firstSeenAt: s.at,
+          lastSeenAt: s.at,
+        })
+        .onConflictDoUpdate({
+          target: [reportingErrorTenants.fingerprint, reportingErrorTenants.tenantId],
+          set: {
+            occurrences: sql`${reportingErrorTenants.occurrences} + 1`,
+            lastSeenAt: sql`greatest(${reportingErrorTenants.lastSeenAt}, ${s.at.toISOString()}::timestamptz)`,
+          },
+        });
+    }
 
     if (written[0]?.created) return 'created';
     return priorState === 'resolved' || priorState === 'ignored' ? 'reopened' : 'unchanged';

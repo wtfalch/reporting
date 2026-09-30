@@ -4,6 +4,7 @@ import { KIND_PATTERN } from '../schema.js';
 import { reportingEvents } from '../tables.js';
 import { type TestDb, memoryLog, testDb } from '../test/db.js';
 import type { Db } from '../types.js';
+import { errorDetail, errorsPage } from './reader.js';
 
 /**
  * `captureError` against a real table (PGlite by default, TEST_DATABASE_URL
@@ -533,5 +534,64 @@ describe('captureError() against a failing database', () => {
     expect(
       log.lines.some((l) => l.level === 'error' && /error group upsert failed/.test(l.msg ?? '')),
     ).toBe(true);
+  });
+});
+
+describe('two tenants hitting one fingerprint', () => {
+  const A = '11111111-1111-4111-8111-111111111111';
+  const B = '22222222-2222-4222-8222-222222222222';
+
+  async function captureFor(tenants: string[]) {
+    await reset();
+    await t.exec('delete from reporting_error_tenants');
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+    });
+    for (const tenantId of tenants) {
+      r.captureError(new TypeError('shared bug'), { tenantId });
+      await h.drain();
+    }
+  }
+
+  it('each tenant sees its own occurrences, and the other tenant sees none of them', async () => {
+    await captureFor([A, A, B]);
+    const pageA = await errorsPage(t.db, { tenantId: A });
+    const pageB = await errorsPage(t.db, { tenantId: B });
+    expect(pageA.items).toHaveLength(1);
+    expect(pageA.items[0]).toMatchObject({ tenantId: A, occurrences: 2 });
+    expect(pageB.items).toHaveLength(1);
+    expect(pageB.items[0]).toMatchObject({ tenantId: B, occurrences: 1 });
+    const fingerprint = pageA.items[0]?.fingerprint as string;
+    expect(pageB.items[0]?.fingerprint).toBe(fingerprint);
+    // The unscoped reader still sees the one shared group, counting both.
+    const all = await errorsPage(t.db);
+    expect(all.items).toHaveLength(1);
+    expect(all.items[0]?.occurrences).toBe(3);
+    expect((await errorDetail(t.db, fingerprint, { tenantId: B }))?.occurrences).toBe(1);
+  });
+
+  it('a tenant that never hit the error gets an empty page and a null detail', async () => {
+    await captureFor([A]);
+    const fingerprint = (await errorsPage(t.db)).items[0]?.fingerprint as string;
+    expect((await errorsPage(t.db, { tenantId: B })).items).toHaveLength(0);
+    expect(await errorDetail(t.db, fingerprint, { tenantId: B })).toBeNull();
+  });
+
+  it('pruning a group takes its tenant rows with it', async () => {
+    await captureFor([A]);
+    await t.exec(
+      `update reporting_errors set state = 'resolved', resolved_at = now(), resolved_by = 'human:x', last_seen_at = now(), first_seen_at = now() - interval '90 days'`,
+    );
+    await t.exec(
+      `update reporting_errors set last_seen_at = now() - interval '60 days', first_seen_at = now() - interval '61 days'`,
+    );
+    await t.query(`select reporting_prune_errors(interval '30 days', 5000) as n`);
+    const left = await t.query('select count(*)::int as n from reporting_error_tenants');
+    expect(left[0]?.n).toBe(0);
   });
 });
