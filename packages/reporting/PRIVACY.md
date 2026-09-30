@@ -68,3 +68,24 @@ organisation.
 have nothing about them to erase. **Consent**: cookieless by default; the
 cookie `_rp` (one year, SameSite=Lax, Secure) appears only after the person
 accepts, or under the `always` mode a host chooses knowingly.
+
+## `reporting_errors`
+
+One row per error group (a fingerprint of class, message shape and top
+frames), with the latest occurrence's `message` (≤ 512 characters) and
+`stack` (≤ 16 KB), a count, first and last seen, the latest `tenant_id`, and
+a state. Resolved and ignored groups are deleted by `pruneErrors` after
+`events.retention_days`; an 'open' group is not pruned by age.
+
+What is redacted from `message` and `stack` before storage:
+
+- The exact values of `KEYSTORE_KEK`, `KEYSTORE_KEK_PREVIOUS` and any
+  variable named in `redactEnvVars`.
+- By pattern: email addresses, `Bearer`/`Basic` credentials, an
+  `Authorization` header's value, JWTs, and GitHub, Slack and AWS access key
+  formats.
+
+What is not: a name, a phone number, an address, an opaque token with no
+label or known prefix, and anything domain-specific. The patterns are a
+guardrail, not proof of absence. Throw errors with fixed messages; never
+interpolate user input or a provider response into one.

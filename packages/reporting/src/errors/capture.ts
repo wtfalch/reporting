@@ -5,7 +5,7 @@ import { reportingErrors } from '../tables.js';
 import type { AlertFinding, CaptureContext, Db, EventInput, Logger } from '../types.js';
 import { describe } from '../writer.js';
 import { errorKind, fingerprint } from './fingerprint.js';
-import { heldSecrets, redactText } from './redact.js';
+import { heldSecrets, redactPii, redactText } from './redact.js';
 
 /**
  * The one path an uncaught exception takes into the estate
@@ -255,10 +255,15 @@ export function createCapture(o: CaptureOptions) {
     try {
       const kind = resolveKind(error, context.kind);
       const secrets = heldSecrets(process.env, o.redactEnvVars);
-      const message = truncateEnd(redactText(messageOf(error, kind), secrets), LIMITS.message);
+      const message = truncateEnd(
+        redactPii(redactText(messageOf(error, kind), secrets)),
+        LIMITS.message,
+      );
       const rawStack = stackOf(error);
       const stack =
-        rawStack === null ? null : truncateEnd(redactText(rawStack, secrets), LIMITS.stack);
+        rawStack === null
+          ? null
+          : truncateEnd(redactPii(redactText(rawStack, secrets)), LIMITS.stack);
       const fp = fingerprint({ kind, message, stack });
       const runtime = normaliseRuntime(context.runtime);
       // A tenant id that is not a uuid would be refused by the event row's

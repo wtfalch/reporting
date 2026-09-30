@@ -179,6 +179,28 @@ describe('captureError() against the table', () => {
     }
   });
 
+  it('redacts an email address and a bearer token from the stored message and stack', async () => {
+    await reset();
+    const h = deferHarness();
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: h.defer,
+    });
+    const err = new Error('no account for ana@example.com');
+    err.stack =
+      'Error: no account for ana@example.com\n    at login (/app/login.ts:1:1)\n    sent Bearer abcdef0123456789xyz';
+    r.captureError(err);
+    await h.drain();
+    const rows = await t.query('select message, stack from reporting_errors');
+    expect(rows[0]?.message).toBe('no account for [redacted: email]');
+    expect(rows[0]?.stack).not.toContain('ana@example.com');
+    expect(rows[0]?.stack).not.toContain('abcdef0123456789xyz');
+    expect(rows[0]?.stack).toContain('at login (/app/login.ts:1:1)');
+  });
+
   it('redacts a host-named secret beyond KEYSTORE_*, via redactEnvVars', async () => {
     await reset();
     const original = process.env.ACME_STRIPE_KEY;

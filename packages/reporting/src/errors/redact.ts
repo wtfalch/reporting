@@ -75,6 +75,38 @@ export function redactText(text: string, secrets: readonly string[]): string {
 }
 
 /**
+ * Pattern-based PII redaction for a captured `message` or `stack`.
+ *
+ * `redactText` only knows the exact strings the host holds. A user's email
+ * address or a bearer token inside an error message is not one of them, yet
+ * it would be stored verbatim, kept until pruned and readable by anyone who
+ * can open the errors page. This covers the common shapes by pattern: cheap,
+ * and with false negatives (a bare opaque token with no label is not caught).
+ * A string that only looks like a secret and is not one, such as a version
+ * like `lodash@4.17.20`, is left alone.
+ */
+const PII_PATTERNS: readonly [RegExp, string][] = [
+  [/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/g, '[redacted: email]'],
+  // JWT: three base64url segments, the first two starting with an encoded `{"`.
+  [/\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]*/g, '[redacted: token]'],
+  // An Authorization header's value, including its scheme.
+  [/\b(authorization\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?[^\s,;'"]+/gi, '$1[redacted: token]'],
+  // A scheme followed by a credential, anywhere.
+  [/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted: token]'],
+  // Well-known prefixed token formats.
+  [
+    /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})\b/g,
+    '[redacted: token]',
+  ],
+];
+
+export function redactPii(text: string): string {
+  let out = text;
+  for (const [pattern, replacement] of PII_PATTERNS) out = out.replace(pattern, replacement);
+  return out;
+}
+
+/**
  * The same structure with every held secret replaced.
  *
  * Walks rather than serialising and string-replacing, so the shape a caller

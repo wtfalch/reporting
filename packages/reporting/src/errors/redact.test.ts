@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { REDACTED, heldSecrets, redactText, scrub } from './redact.js';
+import { REDACTED, heldSecrets, redactPii, redactText, scrub } from './redact.js';
 
 /**
  * The scrubber, and the shapes an error report actually arrives in.
@@ -181,5 +181,31 @@ describe('scrub', () => {
     const out = scrub({ headers: ['a', kek, 'b'] }, secrets);
     expect(Array.isArray(out.headers)).toBe(true);
     expect(out.headers[1]).toBe(REDACTED);
+  });
+});
+
+describe('redactPii', () => {
+  it('replaces an email address, wherever it sits', () => {
+    expect(redactPii('no account for ana.b+x@example.co.uk here')).toBe(
+      'no account for [redacted: email] here',
+    );
+  });
+
+  it('replaces a bearer token, an Authorization value and a JWT', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2lnbmF0dXJl';
+    expect(redactPii('sent Bearer abcdef0123456789xyz to upstream')).toBe(
+      'sent Bearer [redacted: token] to upstream',
+    );
+    expect(redactPii('headers: authorization: Basic dXNlcjpwYXNz, accept: */*')).toBe(
+      'headers: authorization: [redacted: token], accept: */*',
+    );
+    expect(redactPii(`session ${jwt} expired`)).toBe('session [redacted: token] expired');
+    expect(redactPii('ghp_abcdefghijklmnopqrstuvwx0123 leaked')).toBe('[redacted: token] leaked');
+  });
+
+  it('leaves ordinary text and package versions alone', () => {
+    const text =
+      'at Object.get (/app/node_modules/.pnpm/lodash@4.17.20/node_modules/lodash/index.js:100:5) Bearer of bad news';
+    expect(redactPii(text)).toBe(text);
   });
 });
