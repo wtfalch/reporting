@@ -42,7 +42,7 @@ anything.
 ```ts
 // src/lib/reporting/core.ts, the one file that imports your raw handle
 import { createReporting } from '@wtfalch/reporting';
-import { createHousekeeping, pruneEvents, retentionLag } from '@wtfalch/reporting/housekeeping';
+import { createHousekeeping, pruneErrors, pruneEvents, retentionLag } from '@wtfalch/reporting/housekeeping';
 import { deferWithAfter } from '@wtfalch/reporting/next';
 
 export const reporting = createReporting({
@@ -55,6 +55,7 @@ export const reporting = createReporting({
 
 export const housekeeping = createHousekeeping({ reporting });
 housekeeping.register(pruneEvents);
+housekeeping.register(pruneErrors);
 housekeeping.register(retentionLag);
 ```
 

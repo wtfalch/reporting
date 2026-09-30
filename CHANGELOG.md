@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 — unreleased
+
+- `pruneErrors` is now exported from `@wtfalch/reporting/housekeeping`. It
+  existed and was tested but could not be imported, so no host could register
+  it and `reporting_errors` was never pruned. It reads the same
+  `events.retention_days` window as `pruneEvents` and never touches an
+  'open' group. (#30)
+
 ## 0.5.0 — 2026-09-23
 
 - `errorDetail` and `setErrorState` are now exported from the package

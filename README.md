@@ -30,3 +30,13 @@ publishes with provenance through npm trusted publishing (OIDC), so the
 repository holds no npm token. The first version, 0.1.0, went out from a
 laptop because a package has to exist before npm can trust a publisher for
 it.
+
+## The shared collector (issue #42)
+
+`docs/adr/0001-shared-collector-service-shape.md` and `docs/plans/collector.md`
+track moving to one shared, org-scoped collector service. `packages/sdk`
+(`@wtfalch/reporting-sdk`) is the first piece of slice 2's scaffold for that
+shape -- package-template's `service`-shape toy, renamed to this repo's
+token, private and unpublished, `pnpm check`-clean. `packages/service`
+follows in a stacked PR. `packages/reporting` keeps publishing as
+`@wtfalch/reporting` unchanged; no app has moved off it yet.
