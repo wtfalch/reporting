@@ -8,6 +8,11 @@
   unredacted text: operators should resolve the old rows.
 - Redaction also covers `scheme://user:password@host` URLs, labelled secrets
   in JSON, colon and `%3D` forms, `x-api-key:` headers and a JSON `"cookie"`.
+- Redaction now also covers OpenAI/Anthropic (`sk-`), SendGrid (`SG.`),
+  Stripe webhook secrets (`whsec_`), npm tokens (`npm_`), Slack
+  incoming-webhook URLs, short Slack tokens (`xoxb-` and friends, under 10
+  chars), a labelled `aws_secret_access_key`, and a bearer/basic credential
+  under 8 chars (#50).
 
 ## 0.5.0 — 2026-09-23
 
