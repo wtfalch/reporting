@@ -8,9 +8,14 @@
   Without it, capture still writes the group row and logs a warning, but no
   tenant row, so a tenant-scoped page stays empty.
 - In tenant scope the shared group's `message`, `stack`, `runtime`, `release`,
-  `requestId` and `resolvedBy` are null (type `TenantErrorRow`): they come from
+  `requestId`, `resolvedBy`, `state` and `resolvedAt` are null (type `TenantErrorRow`): they come from
   whichever tenant hit the group last, and showing them leaks one tenant's
-  data to another. `search` matches `kind` only and `runtime` is not filtered.
+  data to another. `search` matches `kind` only, and `runtime` and `state` are
+  not filtered in tenant scope.
+- Tenant scope is decided by whether `tenantId` is present. An empty or
+  non-uuid string throws instead of reading every tenant's data. `errorsPage`
+  and `errorDetail` are overloaded: without `tenantId` they return
+  `ReportingErrorRow` as before, with it `TenantErrorRow`.
 - There is no backfill. The old table kept only the latest tenant per group, so
   copying its counts would credit that tenant with everyone's history. Counts
   per tenant start when 0.6.0 is deployed.

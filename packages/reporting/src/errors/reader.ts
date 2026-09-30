@@ -9,9 +9,27 @@ function likePattern(term: string): string {
   return `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Scope is decided by presence, not truthiness: an empty string from a host
+ * bug must not fall through to the unscoped read of every tenant's data, so
+ * anything present and not a uuid throws.
+ */
+function tenantScope(tenantId: string | undefined): string | undefined {
+  if (tenantId === undefined) return undefined;
+  if (typeof tenantId !== 'string' || !UUID.test(tenantId)) {
+    throw new Error(
+      'tenantId must be a uuid when given; refusing to fall back to an unscoped read',
+    );
+  }
+  return tenantId;
+}
+
 /**
  * The columns a tenant may see of a shared group. The text and request facts
- * of the group belong to whichever tenant hit it last, so they are null.
+ * of the group belong to whichever tenant hit it last, and its triage state is
+ * one operator's call for every tenant, so those are null.
  */
 function tenantColumns() {
   return {
@@ -25,8 +43,8 @@ function tenantColumns() {
     release: sql<null>`null`.as('release'),
     requestId: sql<null>`null`.as('request_id'),
     resolvedBy: sql<null>`null`.as('resolved_by'),
-    state: reportingErrors.state,
-    resolvedAt: reportingErrors.resolvedAt,
+    state: sql<null>`null`.as('state'),
+    resolvedAt: sql<null>`null`.as('resolved_at'),
     tenantId: reportingErrorTenants.tenantId,
     occurrences: reportingErrorTenants.occurrences,
     firstSeenAt: reportingErrorTenants.firstSeenAt,
@@ -44,25 +62,40 @@ function tenantColumns() {
  * for its scale. No permission is applied here: the host gates, and this
  * returns rows as stored.
  */
+export function errorsPage(
+  db: Db,
+  opts?: ErrorsPageOptions & { readonly tenantId?: undefined },
+): Promise<ErrorsPage<ReportingErrorRow>>;
+export function errorsPage(
+  db: Db,
+  opts: ErrorsPageOptions & { readonly tenantId: string },
+): Promise<ErrorsPage<TenantErrorRow>>;
+export function errorsPage(db: Db, opts?: ErrorsPageOptions): Promise<ErrorsPage>;
 export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<ErrorsPage> {
+  const tenantId = tenantScope(opts.tenantId);
   const limit = Math.max(1, Math.min(opts.limit ?? 50, 200));
   // With a tenant, the page is that tenant's own view: its rows join the
   // group and supply the counts and times, so ordering and paging follow the
   // tenant's last occurrence, not anyone else's.
-  const seen = opts.tenantId ? reportingErrorTenants.lastSeenAt : reportingErrors.lastSeenAt;
+  const seen =
+    tenantId !== undefined ? reportingErrorTenants.lastSeenAt : reportingErrors.lastSeenAt;
   const conditions = [];
   if (opts.site) conditions.push(eq(reportingErrors.site, opts.site));
-  if (opts.state) conditions.push(eq(reportingErrors.state, opts.state));
+  // `state` is shared operator triage, so in tenant scope it is ignored: a
+  // filter on it would show one tenant whether another reopened the group.
+  if (opts.state && tenantId === undefined) conditions.push(eq(reportingErrors.state, opts.state));
   // `runtime` and the text are the latest sample from any tenant, so a tenant
   // scope neither filters on the first nor searches the rest: either would be
   // an oracle on another tenant's data. Search matches `kind` there.
-  if (opts.runtime && !opts.tenantId) conditions.push(eq(reportingErrors.runtime, opts.runtime));
+  if (opts.runtime && tenantId === undefined)
+    conditions.push(eq(reportingErrors.runtime, opts.runtime));
   const search = opts.search?.trim().slice(0, 200);
   if (search) {
     const pattern = likePattern(search);
-    const clause = opts.tenantId
-      ? ilike(reportingErrors.kind, pattern)
-      : or(ilike(reportingErrors.message, pattern), ilike(reportingErrors.stack, pattern));
+    const clause =
+      tenantId !== undefined
+        ? ilike(reportingErrors.kind, pattern)
+        : or(ilike(reportingErrors.message, pattern), ilike(reportingErrors.stack, pattern));
     if (clause) conditions.push(clause);
   }
   if (opts.environment) conditions.push(eq(reportingErrors.environment, opts.environment));
@@ -76,26 +109,27 @@ export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<
   }
   const where = conditions.length > 0 ? and(...conditions) : undefined;
   const order = [desc(seen), desc(reportingErrors.fingerprint)] as const;
-  const rows = opts.tenantId
-    ? await db
-        .select(tenantColumns())
-        .from(reportingErrors)
-        .innerJoin(
-          reportingErrorTenants,
-          and(
-            eq(reportingErrorTenants.fingerprint, reportingErrors.fingerprint),
-            eq(reportingErrorTenants.tenantId, opts.tenantId),
-          ),
-        )
-        .where(where)
-        .orderBy(...order)
-        .limit(limit + 1)
-    : await db
-        .select()
-        .from(reportingErrors)
-        .where(where)
-        .orderBy(...order)
-        .limit(limit + 1);
+  const rows =
+    tenantId !== undefined
+      ? await db
+          .select(tenantColumns())
+          .from(reportingErrors)
+          .innerJoin(
+            reportingErrorTenants,
+            and(
+              eq(reportingErrorTenants.fingerprint, reportingErrors.fingerprint),
+              eq(reportingErrorTenants.tenantId, tenantId),
+            ),
+          )
+          .where(where)
+          .orderBy(...order)
+          .limit(limit + 1)
+      : await db
+          .select()
+          .from(reportingErrors)
+          .where(where)
+          .orderBy(...order)
+          .limit(limit + 1);
   const items = rows.slice(0, limit);
   const last = items.at(-1);
   return {
@@ -110,15 +144,31 @@ export async function errorsPage(db: Db, opts: ErrorsPageOptions = {}): Promise<
 /**
  * One row by fingerprint, or null when it is unknown. With `tenantId`, null
  * too when that tenant never hit it, and the row is a `TenantErrorRow`: the
- * counts and times are the tenant's own and the shared text is null, as in
- * `errorsPage`.
+ * counts and times are the tenant's own and the shared text and triage state
+ * are null, as in `errorsPage`. A present `tenantId` that is not a uuid throws.
  */
+export function errorDetail(
+  db: Db,
+  fingerprint: string,
+  opts?: { readonly tenantId?: undefined },
+): Promise<ReportingErrorRow | null>;
+export function errorDetail(
+  db: Db,
+  fingerprint: string,
+  opts: { readonly tenantId: string },
+): Promise<TenantErrorRow | null>;
+export function errorDetail(
+  db: Db,
+  fingerprint: string,
+  opts?: { readonly tenantId?: string },
+): Promise<ReportingErrorRow | TenantErrorRow | null>;
 export async function errorDetail(
   db: Db,
   fingerprint: string,
   opts: { readonly tenantId?: string } = {},
 ): Promise<ReportingErrorRow | TenantErrorRow | null> {
-  if (opts.tenantId) {
+  const tenantId = tenantScope(opts.tenantId);
+  if (tenantId !== undefined) {
     const scoped = await db
       .select(tenantColumns())
       .from(reportingErrors)
@@ -126,7 +176,7 @@ export async function errorDetail(
         reportingErrorTenants,
         and(
           eq(reportingErrorTenants.fingerprint, reportingErrors.fingerprint),
-          eq(reportingErrorTenants.tenantId, opts.tenantId),
+          eq(reportingErrorTenants.tenantId, tenantId),
         ),
       )
       .where(eq(reportingErrors.fingerprint, fingerprint))

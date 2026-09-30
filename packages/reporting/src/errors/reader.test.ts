@@ -1,12 +1,14 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, expectTypeOf, it } from 'vitest';
 import {
   errorDetail as errorDetailFromEntry,
   errorsPage as errorsPageFromEntry,
   setErrorState as setErrorStateFromEntry,
 } from '../index.js';
+import type { ReportingErrorRow, TenantErrorRow } from '../tables.js';
 import { reportingErrors } from '../tables.js';
 import type { TestDb } from '../test/db.js';
 import { testDb } from '../test/db.js';
+import type { Db } from '../types.js';
 import { errorDetail, errorsPage, setErrorState } from './reader.js';
 
 /**
@@ -215,5 +217,77 @@ describe('setErrorState', () => {
     await seed({ fingerprint: fp(1) });
     const row = await setErrorStateFromEntry(t.db, fp(1), 'resolved', by);
     expect(row?.state).toBe('resolved');
+  });
+});
+
+describe('tenant scope', () => {
+  const A = '11111111-1111-4111-8111-111111111111';
+
+  async function seedTenantGroup() {
+    await t.exec('delete from reporting_error_tenants');
+    await seed({ fingerprint: fp(1) });
+    await t.exec(
+      "update reporting_errors set state = 'resolved', resolved_at = now(), resolved_by = 'human:x'",
+    );
+    await t.exec(
+      `insert into reporting_error_tenants (fingerprint, tenant_id, first_seen_at, last_seen_at) values ('${fp(1)}', '${A}', now(), now())`,
+    );
+  }
+
+  it('returns null for state and resolvedAt, so another tenant reopening cannot be seen', async () => {
+    await seedTenantGroup();
+    const page = await errorsPage(t.db, { tenantId: A });
+    expect(page.items[0]).toMatchObject({ state: null, resolvedAt: null });
+    expect(await errorDetail(t.db, fp(1), { tenantId: A })).toMatchObject({
+      state: null,
+      resolvedAt: null,
+    });
+  });
+
+  it('ignores opts.state in tenant scope', async () => {
+    await seedTenantGroup();
+    // The shared group is resolved; filtering on 'open' must not hide it or reveal state.
+    expect((await errorsPage(t.db, { tenantId: A, state: 'open' })).items).toHaveLength(1);
+    expect((await errorsPage(t.db, { tenantId: A, state: 'resolved' })).items).toHaveLength(1);
+    expect((await errorsPage(t.db, { state: 'open' })).items).toHaveLength(0);
+  });
+
+  it('throws on an empty or non-uuid tenantId instead of reading unscoped', async () => {
+    await seedTenantGroup();
+    await expect(errorsPage(t.db, { tenantId: '' })).rejects.toThrow(/tenantId/);
+    await expect(errorsPage(t.db, { tenantId: 'not-a-uuid' })).rejects.toThrow(/tenantId/);
+    await expect(errorDetail(t.db, fp(1), { tenantId: '' })).rejects.toThrow(/tenantId/);
+    await expect(errorDetail(t.db, fp(1), { tenantId: 'nope' })).rejects.toThrow(/tenantId/);
+  });
+
+  it('treats an undefined tenantId the same as an absent one (unscoped)', async () => {
+    await seedTenantGroup();
+    const absent = await errorsPage(t.db);
+    const undef = await errorsPage(t.db, { tenantId: undefined });
+    expect(undef.items).toEqual(absent.items);
+    expect(undef.items[0]?.message).toBe('boom');
+    expect((await errorDetail(t.db, fp(1), { tenantId: undefined }))?.message).toBe('boom');
+  });
+});
+
+describe('overloads', () => {
+  it('types rows by whether tenantId is given', () => {
+    // Compile-time only: the function is never called, so no query runs.
+    const check = (db: Db) => {
+      expectTypeOf(errorsPage(db))
+        .resolves.toHaveProperty('items')
+        .toEqualTypeOf<readonly ReportingErrorRow[]>();
+      expectTypeOf(errorsPage(db, { limit: 5 }))
+        .resolves.toHaveProperty('items')
+        .toEqualTypeOf<readonly ReportingErrorRow[]>();
+      expectTypeOf(errorsPage(db, { tenantId: 'x' }))
+        .resolves.toHaveProperty('items')
+        .toEqualTypeOf<readonly TenantErrorRow[]>();
+      expectTypeOf(errorDetail(db, 'f')).resolves.toEqualTypeOf<ReportingErrorRow | null>();
+      expectTypeOf(
+        errorDetail(db, 'f', { tenantId: 'x' }),
+      ).resolves.toEqualTypeOf<TenantErrorRow | null>();
+    };
+    expect(check).toBeTypeOf('function');
   });
 });

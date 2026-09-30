@@ -249,12 +249,14 @@ export type ReportingErrorRow = typeof reportingErrors.$inferSelect;
 
 /**
  * A group as a tenant sees it: the shared group's text and request facts come
- * from whichever tenant hit it last, so they are null here. Counts, times and
+ * from whichever tenant hit it last, and its triage state (`state`,
+ * `resolvedAt`) is one operator's call for all tenants, so they are null here.
+ * Counts, times and
  * `tenantId` are the tenant's own (reporting_error_tenants).
  */
 export type TenantErrorRow = Omit<
   ReportingErrorRow,
-  'message' | 'stack' | 'runtime' | 'release' | 'requestId' | 'resolvedBy'
+  'message' | 'stack' | 'runtime' | 'release' | 'requestId' | 'resolvedBy' | 'state' | 'resolvedAt'
 > & {
   readonly message: null;
   readonly stack: null;
@@ -262,6 +264,9 @@ export type TenantErrorRow = Omit<
   readonly release: null;
   readonly requestId: null;
   readonly resolvedBy: null;
+  /** Triage state is shared across tenants, so a tenant cannot see it. */
+  readonly state: null;
+  readonly resolvedAt: null;
 };
 
 export const tables = {

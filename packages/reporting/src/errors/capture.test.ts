@@ -607,6 +607,8 @@ describe('two tenants hitting one fingerprint', () => {
       release: null,
       requestId: null,
       resolvedBy: null,
+      state: null,
+      resolvedAt: null,
     };
     const page = await errorsPage(t.db, { tenantId: A });
     expect(page.items[0]).toMatchObject({ tenantId: A, ...nulls });
