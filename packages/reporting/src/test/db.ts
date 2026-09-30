@@ -17,6 +17,7 @@ export const MIGRATION_SQL = [
   '0004_environment.sql',
   '0005_analytics_session_index.sql',
   '0006_tenant_settings.sql',
+  '0007_errors_open_cap.sql',
 ]
   .map((f) => readFileSync(join(MIGRATIONS, f), 'utf8'))
   .join('\n');
