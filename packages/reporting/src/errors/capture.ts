@@ -5,7 +5,7 @@ import { reportingErrorTenants, reportingErrors } from '../tables.js';
 import type { AlertFinding, CaptureContext, Db, EventInput, Logger } from '../types.js';
 import { describe } from '../writer.js';
 import { errorKind, fingerprint } from './fingerprint.js';
-import { heldSecrets, redactText } from './redact.js';
+import { heldSecrets, redactPii, redactText } from './redact.js';
 
 /**
  * The one path an uncaught exception takes into the estate
@@ -113,6 +113,9 @@ function messageOf(error: unknown, kind: string): string {
 function stackOf(error: unknown): string | null {
   return error instanceof Error && typeof error.stack === 'string' ? error.stack : null;
 }
+
+/** Extra characters kept before redaction so a secret at the size limit is seen whole. */
+const SLACK = 1024;
 
 /** Keeps the top of the text — the start, where the throw site and its callers are — and drops the rest. */
 function truncateEnd(text: string, max: number): string {
@@ -290,10 +293,22 @@ export function createCapture(o: CaptureOptions) {
     try {
       const kind = resolveKind(error, context.kind);
       const secrets = heldSecrets(process.env, o.redactEnvVars);
-      const message = truncateEnd(redactText(messageOf(error, kind), secrets), LIMITS.message);
+      // Bound the text before redacting it: the patterns must never see an
+      // uncapped, attacker-sized string. The cut keeps slack past the limit so
+      // a secret straddling the limit is redacted whole, then the final cut
+      // applies the real limit.
+      const message = truncateEnd(
+        redactPii(redactText(truncateEnd(messageOf(error, kind), LIMITS.message + SLACK), secrets)),
+        LIMITS.message,
+      );
       const rawStack = stackOf(error);
       const stack =
-        rawStack === null ? null : truncateEnd(redactText(rawStack, secrets), LIMITS.stack);
+        rawStack === null
+          ? null
+          : truncateEnd(
+              redactPii(redactText(truncateEnd(rawStack, LIMITS.stack + SLACK), secrets)),
+              LIMITS.stack,
+            );
       const fp = fingerprint({ kind, message, stack });
       const runtime = normaliseRuntime(context.runtime);
       // A tenant id that is not a uuid would be refused by the event row's

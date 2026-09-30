@@ -4,6 +4,7 @@ import { createReporting } from '../index.js';
 import { reportingErrors } from '../tables.js';
 import { type TestDb, memoryLog, testDb } from '../test/db.js';
 import type { Reporting } from '../types.js';
+import { MAX_OPEN_ERRORS_PER_SITE, pruneOpenErrors, pruneOpenErrorsBatch } from './tasks.js';
 
 /**
  * `reporting_prune_errors` (the SQL function, 0003_errors.sql) and the
@@ -152,5 +153,58 @@ describe('pruneErrors task', () => {
       `select data from reporting_events where kind = 'reporting.pruned_errors'`,
     );
     expect(pruned).toHaveLength(0);
+  });
+});
+
+describe('reporting_prune_open_errors', () => {
+  async function seedOpen(site: string, count: number, prefix: string) {
+    // Distinct last_seen_at, newest first by index: 'n0' is the newest.
+    await t.exec(`
+      insert into reporting_errors (fingerprint, site, kind, message, runtime, first_seen_at, last_seen_at)
+      select md5('${prefix}' || g), '${site}', 'Error', 'msg ' || g, 'browser',
+             now() - make_interval(secs => g), now() - make_interval(secs => g)
+        from generate_series(1, ${count}) g`);
+  }
+
+  it('keeps a site under the cap after a flood of distinct messages, evicting the oldest', async () => {
+    await seedOpen('test', 1000, 'a');
+    const n = await pruneOpenErrorsBatch(t.db, 100, 5000);
+    expect(n).toBe(900);
+    expect(await errorCount()).toBe(100);
+    const [oldest] = await t.query('select max(now() - last_seen_at) as age from reporting_errors');
+    expect(String(oldest?.age)).toMatch(/00:01:40/);
+  });
+
+  it('caps each site on its own, and never touches resolved rows', async () => {
+    await seedOpen('test', 150, 'a');
+    await seedOpen('other', 150, 'b');
+    await seedError({ fingerprint: fp(900), state: 'resolved', daysAgo: 1 });
+    await pruneOpenErrorsBatch(t.db, 100, 5000);
+    const rows = await t.query(
+      'select site, state, count(*)::int as n from reporting_errors group by site, state order by site, state',
+    );
+    expect(rows).toEqual([
+      { site: 'other', state: 'open', n: 100 },
+      { site: 'test', state: 'open', n: 100 },
+      { site: 'test', state: 'resolved', n: 1 },
+    ]);
+  });
+
+  it('clamps a tiny cap to 100 so an argument cannot empty the table', async () => {
+    await seedOpen('test', 150, 'a');
+    await pruneOpenErrorsBatch(t.db, 0, 5000);
+    expect(await errorCount()).toBe(100);
+  });
+
+  it('the task evicts beyond the default cap and records an event', async () => {
+    const hk = createHousekeeping({ reporting, db: t.db, debounceMs: 0 });
+    hk.register(pruneOpenErrors);
+    await seedOpen('test', MAX_OPEN_ERRORS_PER_SITE + 5, 'a');
+    expect(await hk.runNow('reporting.prune_open_errors')).toBe('ran');
+    expect(await errorCount()).toBe(MAX_OPEN_ERRORS_PER_SITE);
+    const ev = await t.query(
+      `select data from reporting_events where kind = 'reporting.pruned_open_errors'`,
+    );
+    expect(ev[0]?.data).toMatchObject({ rows: 5, cap: MAX_OPEN_ERRORS_PER_SITE });
   });
 });
