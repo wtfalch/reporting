@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { REDACTED, heldSecrets, redactText, scrub } from './redact.js';
+import { REDACTED, heldSecrets, redactPii, redactText, scrub } from './redact.js';
 
 /**
  * The scrubber, and the shapes an error report actually arrives in.
@@ -181,5 +181,131 @@ describe('scrub', () => {
     const out = scrub({ headers: ['a', kek, 'b'] }, secrets);
     expect(Array.isArray(out.headers)).toBe(true);
     expect(out.headers[1]).toBe(REDACTED);
+  });
+});
+
+describe('redactPii', () => {
+  it('replaces an email address, wherever it sits', () => {
+    expect(redactPii('no account for ana.b+x@example.co.uk here')).toBe(
+      'no account for [redacted: email] here',
+    );
+  });
+
+  it('replaces a bearer token, an Authorization value and a JWT', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2lnbmF0dXJl';
+    expect(redactPii('sent Bearer abcdef0123456789xyz to upstream')).toBe(
+      'sent Bearer [redacted: token] to upstream',
+    );
+    expect(redactPii('headers: authorization: Basic dXNlcjpwYXNz, accept: */*')).toBe(
+      'headers: authorization: [redacted: token], accept: */*',
+    );
+    expect(redactPii(`session ${jwt} expired`)).toBe('session [redacted: token] expired');
+    expect(redactPii('ghp_abcdefghijklmnopqrstuvwx0123 leaked')).toBe('[redacted: token] leaked');
+  });
+
+  it('leaves ordinary text and package versions alone', () => {
+    const text =
+      'at Object.get (/app/node_modules/.pnpm/lodash@4.17.20/node_modules/lodash/index.js:100:5) Bearer of bad news';
+    expect(redactPii(text)).toBe(text);
+  });
+});
+
+describe('redactPii: more credential shapes', () => {
+  const cases: [string, string, string][] = [
+    ['Stripe live key', 'key sk_live_abcdefghijklmnop1234 end', 'sk_live_'],
+    ['Stripe test key', 'key sk_test_abcdefghijklmnop1234 end', 'sk_test_'],
+    ['Stripe restricted key', 'key rk_live_abcdefghijklmnop1234 end', 'rk_live_'],
+    ['Google API key', 'key AIzaSyA1234567890abcdefghijklmnopqrstuv end', 'AIza'],
+    ['AWS temporary key', 'key ASIAABCDEFGHIJKLMNOP end', 'ASIAABCDEFGHIJKLMNOP'],
+    [
+      'PEM private key',
+      'k -----BEGIN RSA PRIVATE KEY-----\nMIIEabc\ndef\n-----END RSA PRIVATE KEY----- end',
+      'MIIEabc',
+    ],
+    ['unterminated PEM', 'k -----BEGIN PRIVATE KEY-----\nMIIEabc\ndef', 'MIIEabc'],
+    ['password pair', 'POST body password=hunter2&user=x', 'hunter2'],
+    ['passwd pair', 'passwd=hunter2 next', 'hunter2'],
+    ['token pair in a query', 'GET /x?token=abc123&y=1', 'abc123'],
+    ['api_key pair', 'GET /x?api_key=abc123&y=1', 'abc123'],
+    ['secret pair', 'client_secret=abc123;', 'abc123'],
+    ['Cookie header', 'Cookie: session=abc123; theme=dark\nnext', 'abc123'],
+    ['Set-Cookie header', 'Set-Cookie: sid=abc123; HttpOnly', 'abc123'],
+    ['short JSON authorization', '{"authorization":"Bearer x"}', 'Bearer x'],
+    ['long JSON authorization', `{"authorization":"Bearer ${'z'.repeat(500)}"}`, 'zzzz'],
+  ];
+
+  for (const [name, input, leaked] of cases) {
+    it(`redacts a ${name}`, () => {
+      const out = redactPii(input);
+      expect(out).not.toContain(leaked);
+      expect(out).toContain('[redacted');
+    });
+  }
+
+  it('keeps the text around a redacted pair', () => {
+    expect(redactPii('POST body password=hunter2&user=x')).toBe(
+      'POST body password=[redacted: secret]&user=x',
+    );
+    expect(redactPii('Cookie: a=b\nnext line')).toBe('Cookie: [redacted: cookie]\nnext line');
+  });
+
+  const formCases: [string, string, string][] = [
+    ['postgres URL password', 'connect postgresql://u:pw@10.0.0.1/db failed', 'pw'],
+    ['URL password with dotted host', 'redis://admin:s3cr3t@cache.example.com:6379', 's3cr3t'],
+    ['URL password with empty user', 'redis://:s3cr3t@cache.internal:6379', 's3cr3t'],
+    ['JSON password', '{"password":"hunter2"}', 'hunter2'],
+    ['JSON password with spaces', '{"password":"hunter two"}', 'two'],
+    ['JSON token', '{"token":"abc123"}', 'abc123'],
+    ['uppercase JSON Token', '{"Token": "abc123"}', 'abc123'],
+    ['colon api_key', 'api_key: abc123', 'abc123'],
+    ['colon apikey', 'apikey: abc123', 'abc123'],
+    ['client_secret colon', 'client_secret: abc123', 'abc123'],
+    ['access_token JSON', '{"access_token":"abc123"}', 'abc123'],
+    ['refresh_token colon', 'refresh_token: abc123', 'abc123'],
+    ['x-api-key header', 'x-api-key: abc123', 'abc123'],
+    ['X-API-KEY header', 'X-API-KEY: abc123', 'abc123'],
+    ['percent-encoded password', 'q=password%3Dhunter2&x=1', 'hunter2'],
+    ['JSON cookie', '{"cookie":"a=b; sid=xyz"}', 'xyz'],
+    ['JSON set-cookie', '{"Set-Cookie":"sid=xyz"}', 'xyz'],
+  ];
+
+  for (const [name, input, leaked] of formCases) {
+    it(`redacts a ${name}`, () => {
+      const out = redactPii(input);
+      expect(out).not.toContain(leaked);
+      expect(out).toContain('[redacted');
+    });
+  }
+
+  it('keeps scheme and user in a URL with a password', () => {
+    expect(redactPii('postgresql://u:pw@10.0.0.1/db')).toBe(
+      'postgresql://u:[redacted: password]@10.0.0.1/db',
+    );
+    expect(redactPii('redis://:pw@h/0')).toBe('redis://:[redacted: password]@h/0');
+  });
+
+  it('leaves a URL without a password alone', () => {
+    expect(redactPii('https://example.com/a?b=c')).toBe('https://example.com/a?b=c');
+  });
+
+  it('redacts 17 KB of "-eyJ" in under 20 ms', () => {
+    const input = '-eyJ'.repeat(Math.ceil(17_000 / 4));
+    const start = performance.now();
+    const out = redactPii(input);
+    expect(performance.now() - start).toBeLessThan(20);
+    expect(out).toBe(input);
+  });
+
+  it('still redacts a JWT after a non-token character', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abc_def-ghi';
+    expect(redactPii(`t=(${jwt})`)).toBe('t=([redacted: token])');
+  });
+
+  it('redacts 400k characters of "a." with no @ in under 200 ms', () => {
+    const input = 'a.'.repeat(200_000);
+    const start = performance.now();
+    const out = redactPii(input);
+    expect(performance.now() - start).toBeLessThan(200);
+    expect(out).toBe(input);
   });
 });

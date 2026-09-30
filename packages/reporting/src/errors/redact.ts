@@ -75,6 +75,70 @@ export function redactText(text: string, secrets: readonly string[]): string {
 }
 
 /**
+ * Pattern-based PII redaction for a captured `message` or `stack`.
+ *
+ * `redactText` only knows the exact strings the host holds. A user's email
+ * address or a bearer token inside an error message is not one of them, yet
+ * it would be stored verbatim, kept until pruned and readable by anyone who
+ * can open the errors page. This covers the common shapes by pattern: cheap,
+ * and with false negatives (a bare opaque token with no label is not caught).
+ * A string that only looks like a secret and is not one, such as a version
+ * like `lodash@4.17.20`, is left alone.
+ */
+const PII_PATTERNS: readonly [RegExp, string][] = [
+  // URL userinfo: `scheme://user:pass@host` keeps scheme and user, drops the
+  // password (also `scheme://:pass@host`). Before the email rule, which would
+  // otherwise take `pass@host` and leave the user behind a wrong label.
+  [/\b([a-z][a-z0-9+.-]{0,30}:\/\/[^\s:@/]{0,64}:)[^\s@/]{1,256}@/gi, '$1[redacted: password]@'],
+  // Every quantifier is bounded (RFC 5321 limits: 64-char local part, 63-char
+  // labels), so a long run of `a.a.a.` with no `@` costs a fixed amount per
+  // start position rather than a rescan of the rest of the string.
+  [
+    /\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}\b/g,
+    '[redacted: email]',
+  ],
+  // A PEM private key block; an unterminated one (a truncated stack) runs to the end.
+  [
+    /-----BEGIN [A-Z ]{0,30}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,30}PRIVATE KEY-----|$)/g,
+    '[redacted: private key]',
+  ],
+  // The JSON form of an Authorization header, whatever the value's length.
+  [/("authorization"\s*:\s*)"(?:[^"\\]|\\.)*"/gi, '$1"[redacted: token]"'],
+  // A Cookie or Set-Cookie header's value, to the end of the line.
+  [/\b((?:set-)?cookie\s*:\s*)[^\r\n]+/gi, '$1[redacted: cookie]'],
+  // A JSON "cookie" / "set-cookie" value.
+  [/("(?:set-)?cookie"\s*:\s*)"(?:[^"\\]|\\.){0,2048}"/gi, '$1"[redacted: cookie]"'],
+  // A labelled secret in `=`, `:`, JSON (`"password":"x"`) or `%3D` form,
+  // including `x-api-key:` headers. A quoted value is taken whole.
+  [
+    /((?:password|passwd|token|secret|api[_-]?key|apikey|client_secret|access_token|refresh_token)["']?\s*(?::|=|%3D)\s*)(?:"(?:[^"\\]|\\.){0,512}"|'[^']{0,512}'|[^\s&;,'"}]+)/gi,
+    '$1[redacted: secret]',
+  ],
+  // JWT: three base64url segments, the first two starting with an encoded `{"`.
+  // Linear: a start cannot sit inside a base64url run (the lookbehind), and
+  // each segment is capped, so a hostile `-eyJ-eyJ...` costs a fixed amount.
+  [
+    /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{5,2048}\.eyJ[A-Za-z0-9_-]{5,2048}\.[A-Za-z0-9_-]{0,2048}/g,
+    '[redacted: token]',
+  ],
+  // An Authorization header's value, including its scheme.
+  [/\b(authorization\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?[^\s,;'"]+/gi, '$1[redacted: token]'],
+  // A scheme followed by a credential, anywhere.
+  [/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted: token]'],
+  // Well-known prefixed token formats.
+  [
+    /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|(?:AKIA|ASIA)[0-9A-Z]{16}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{30,})\b/g,
+    '[redacted: token]',
+  ],
+];
+
+export function redactPii(text: string): string {
+  let out = text;
+  for (const [pattern, replacement] of PII_PATTERNS) out = out.replace(pattern, replacement);
+  return out;
+}
+
+/**
  * The same structure with every held secret replaced.
  *
  * Walks rather than serialising and string-replacing, so the shape a caller
