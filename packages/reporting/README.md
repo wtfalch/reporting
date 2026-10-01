@@ -25,17 +25,86 @@ Published: yes, v0.5.1, 2026-09-28
 ## Install
 
 ```sh
-pnpm add @wtfalch/reporting
-pnpm exec reporting-migrations   # copies migrations/*.sql into drizzle/ as the next numbers
+pnpm add @wtfalch/reporting @wtfalch/db
 ```
 
-The copied migration creates `reporting_events`, `reporting_tasks` and
-`reporting_settings`, a `SECURITY DEFINER` prune function, and, when a role
-named `<database>_rt` exists, revokes UPDATE, DELETE and TRUNCATE on events
-from it. That is the estate's runtime-role convention; a host without the
-role gets the tables and the function and no revokes take effect. Your
-migrate script applies the file; this package never connects to apply
-anything.
+The package ships SQL and never connects or migrates. The host installs
+`@wtfalch/db`, applies the SQL with the owner credential into a schema of
+its own, then makes the runtime role. The runtime `searchPath` and
+`ensureRuntimeRole({ schemas })` must both cover that schema. The SQL names
+no schema and no role: its `SECURITY DEFINER` functions use `set search_path
+from current`, so they find their tables in whatever schema the host
+migrated into.
+
+```ts
+import { migrationsDir as reportingMigrations } from '@wtfalch/reporting/migrations-dir';
+import { runMigrationSources } from '@wtfalch/db/migrate';
+import { ensureRuntimeRole } from '@wtfalch/db/runtime-role';
+
+await runMigrationSources({
+  url: ownerUrl,
+  schema: 'myservice', // created if missing; the tables land here, never in public
+  sources: [
+    { name: 'reporting', dir: reportingMigrations }, // before the host's own
+    { name: 'app', dir: 'drizzle' },
+  ],
+});
+
+await ensureRuntimeRole({
+  ownerUrl,
+  runtimeUrl,
+  schemas: ['myservice'],
+  appendOnly: ['reporting_events', 'reporting_analytics'], // insert and read only
+  readOnly: ['reporting_analytics_daily', 'reporting_analytics_weekly'], // the rollups: written only by the functions
+  noDelete: [ // insert and update, never delete (needs @wtfalch/db 0.5.1)
+    'reporting_tasks',
+    'reporting_settings',
+    'reporting_errors',
+    'reporting_tenant_settings',
+    'reporting_error_tenants',
+  ],
+  grants: [ // the seven security definer functions, schema-qualified
+    'myservice.reporting_prune_events(interval, integer)',
+    'myservice.reporting_rollup_day(date)',
+    'myservice.reporting_rollup_week(date)',
+    'myservice.reporting_prune_analytics(interval, integer, date)',
+    'myservice.reporting_erase_person(text)',
+    'myservice.reporting_prune_errors(interval, integer)',
+    'myservice.reporting_prune_open_errors(integer, integer)',
+  ],
+});
+```
+
+Run `ensureRuntimeRole` after every migration run: the lists apply to the
+tables that exist at that moment. `grants` entries are spliced into SQL, so
+they are trusted text. On `@wtfalch/db` 0.5.0, which has no `noDelete`, omit
+that list and run `revoke delete, truncate on <schema>.<table> from <role>`
+for the five tables with the owner credential after `ensureRuntimeRole`;
+without it the role can delete from them. These are the privileges the
+package's own tests check, on a real Postgres, in a named schema.
+
+At boot, check the role over the runtime connection, whose `searchPath`
+includes the schema:
+
+```ts
+import { assertRuntimeRole } from '@wtfalch/db/runtime-role';
+
+await assertRuntimeRole(connection.database, {
+  appendOnly: ['myservice.reporting_events', 'myservice.reporting_analytics'],
+  readOnly: ['myservice.reporting_analytics_daily', 'myservice.reporting_analytics_weekly'],
+});
+```
+
+`assertRuntimeRole` cannot verify the DELETE-only revokes (`noDelete`) on
+0.5.0; 0.5.1 takes the same `noDelete` list.
+
+The runtime handle is the native Drizzle one: pass `withDrizzle(runtime, {
+schema: tables }).orm` (or `tx.orm`) from `@wtfalch/db/drizzle`.
+
+Without `@wtfalch/db`, `reporting-migrations` still copies
+`migrations/*.sql` into `drizzle/` as the next numbers and the host applies
+them itself. Prefer `runMigrationSources`: the copy path has no schema and no
+runtime-role step, so the host must grant and revoke by hand.
 
 ## Bind it once
 

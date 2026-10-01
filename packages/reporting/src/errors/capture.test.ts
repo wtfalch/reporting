@@ -34,8 +34,11 @@ function deferHarness() {
       pending.push(fn());
     },
     async drain(): Promise<void> {
-      const batch = pending.splice(0, pending.length);
-      await Promise.all(batch);
+      // A settled upsert can fire an alert, whose flush is deferred in turn:
+      // keep draining until nothing new arrives, or the read races the flush.
+      while (pending.length > 0) {
+        await Promise.all(pending.splice(0, pending.length));
+      }
     },
   };
 }

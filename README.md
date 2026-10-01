@@ -21,7 +21,9 @@ pnpm check
 
 Tests run on PGlite in memory by default. With `TEST_DATABASE_URL` pointing
 at a throwaway Postgres 16 they run there instead, and the runtime-role and
-two-connection cases run too; the database's public schema is dropped first.
+two-connection cases run too. Each test file gets a uniquely named schema,
+dropped afterwards; `public` is never touched, and the runtime-role test
+creates and drops its own role.
 
 Publishing is a tag. Bump the version in `packages/reporting/package.json`,
 merge it, then push `v<version>`: `.github/workflows/release.yml` runs the

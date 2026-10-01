@@ -7,10 +7,8 @@
 -- copies this file into its drizzle/ directory as the next number
 -- (reporting-migrations); never edited there.
 --
--- Estate-shaped: the DO block at the end assumes the runtime-role convention
--- (a role named <database>_rt that owns nothing and serves the app). A host
--- without that role gets the table and no revokes take effect, which the
--- package README says plainly.
+-- The SQL names no role and no schema; the host's ensureRuntimeRole call
+-- sets the runtime role's privileges (see the README).
 
 create table if not exists reporting_errors (
   fingerprint     text primary key,
@@ -77,7 +75,7 @@ create or replace function reporting_prune_errors(retention interval, batch inte
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path from current
 as $$
 declare
   w interval := greatest(interval '7 days', least(coalesce(retention, interval '30 days'), interval '400 days'));
@@ -105,14 +103,4 @@ comment on function reporting_prune_errors(interval, integer) is
 -- on repeat occurrences and an operator moves state through this table.
 -- Nothing that deletes, the same as reporting_tasks and reporting_settings;
 -- reporting_prune_errors runs as the function owner, not the runtime role,
--- so the grant below is execute only, same shape as reporting_prune_events.
-do $$
-declare
-  rt text := current_database() || '_rt';
-begin
-  if exists (select 1 from pg_roles where rolname = rt) then
-    execute format('revoke delete, truncate on reporting_errors from %I', rt);
-    execute format('grant execute on function reporting_prune_errors(interval, integer) to %I', rt);
-  end if;
-end
-$$;
+-- so the runtime role needs execute only, same shape as reporting_prune_events.

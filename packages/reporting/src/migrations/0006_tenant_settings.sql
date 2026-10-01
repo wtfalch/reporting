@@ -45,7 +45,7 @@ create or replace function reporting_prune_events(retention interval, batch inte
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path from current
 as $$
 declare
   w interval := greatest(interval '7 days', least(coalesce(retention, interval '30 days'), interval '400 days'));
@@ -82,7 +82,7 @@ create or replace function reporting_prune_analytics(retention interval, batch i
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path from current
 as $$
 declare
   w interval := greatest(interval '7 days', least(coalesce(retention, interval '90 days'), interval '400 days'));
@@ -121,22 +121,4 @@ revoke all on function reporting_prune_analytics(interval, integer, date) from p
 -- The runtime role reads and edits overrides (an operator's settings page),
 -- same shape as reporting_settings: select, insert, update, nothing that
 -- deletes -- clearing an override is a value update, not a row removal.
---
--- CREATE OR REPLACE FUNCTION keeps the two prune functions' existing grants
--- (their signatures are unchanged from 0001/0002); the two re-grants below
--- are a no-op on a host that already has them and a safety net on one
--- whose grants somehow drifted, cheap either way.
-do $$
-declare
-  rt text := current_database() || '_rt';
-begin
-  if exists (select 1 from pg_roles where rolname = rt) then
-    execute format('revoke delete, truncate on reporting_tenant_settings from %I', rt);
-    execute format('grant execute on function reporting_prune_events(interval, integer) to %I', rt);
-    execute format(
-      'grant execute on function reporting_prune_analytics(interval, integer, date) to %I',
-      rt
-    );
-  end if;
-end
-$$;
+-- The host's ensureRuntimeRole call sets that; see the README.
