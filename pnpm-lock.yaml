@@ -13,6 +13,10 @@ importers:
         version: 1.9.4
 
   packages/reporting:
+    dependencies:
+      '@wtfalch/utils':
+        specifier: 0.1.0
+        version: 0.1.0
     devDependencies:
       '@electric-sql/pglite':
         specifier: ^0.5.8
@@ -466,6 +470,10 @@ packages:
 
   '@vitest/utils@4.1.11':
     resolution: {integrity: sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==}
+
+  '@wtfalch/utils@0.1.0':
+    resolution: {integrity: sha512-ofvjquhSN7oKpkJ/A5nB3gdCauIldu/VTocKnePGxEL1qgjiZWZ1pkK3nV9lkqX0JEwTMiiuuNlmaTvY/3NN/Q==}
+    engines: {node: '>=22.0.0'}
 
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
@@ -1197,6 +1205,8 @@ snapshots:
       '@vitest/pretty-format': 4.1.11
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
+
+  '@wtfalch/utils@0.1.0': {}
 
   assertion-error@2.0.1: {}
 
