@@ -5,10 +5,9 @@
 -- after the host copies this file into its drizzle/ directory as the next
 -- number (reporting-migrations); never edited there.
 --
--- Estate-shaped: the DO block at the end assumes the runtime-role convention
--- (a role named <database>_rt that owns nothing and serves the app). A host
--- without that role gets the tables and the function and no revokes take
--- effect, which the package README says plainly.
+-- The SQL names no role and no schema. The host applies it into its own
+-- schema and makes the runtime role itself; the package README lists the
+-- privileges to pass to ensureRuntimeRole.
 
 create table if not exists reporting_events (
   id              bigint generated always as identity primary key,
@@ -114,7 +113,7 @@ create or replace function reporting_prune_events(retention interval, batch inte
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path from current
 as $$
 declare
   w interval := greatest(interval '7 days', least(coalesce(retention, interval '30 days'), interval '400 days'));
@@ -136,18 +135,5 @@ revoke all on function reporting_prune_events(interval, integer) from public;
 
 -- The runtime role keeps SELECT and INSERT on all three tables, UPDATE on
 -- tasks and settings because the claim protocol and the settings page write
--- them, and nothing that deletes. The host's default privileges granted the
--- rest at create time; the revokes here win because they run later in the
--- same file.
-do $$
-declare
-  rt text := current_database() || '_rt';
-begin
-  if exists (select 1 from pg_roles where rolname = rt) then
-    execute format('revoke update, delete, truncate on reporting_events from %I', rt);
-    execute format('revoke delete, truncate on reporting_tasks from %I', rt);
-    execute format('revoke delete, truncate on reporting_settings from %I', rt);
-    execute format('grant execute on function reporting_prune_events(interval, integer) to %I', rt);
-  end if;
-end
-$$;
+-- them, and nothing that deletes. The host's ensureRuntimeRole call sets
+-- that; see the README.

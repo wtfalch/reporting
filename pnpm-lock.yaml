@@ -23,15 +23,15 @@ importers:
       '@types/react':
         specifier: ^19
         version: 19.3.0
+      '@wtfalch/db':
+        specifier: 0.5.2
+        version: 0.5.2(@electric-sql/pglite@0.5.8)(drizzle-orm@0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9))
       drizzle-orm:
-        specifier: ^0.39.3
+        specifier: 0.39.3
         version: 0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9)
       next:
         specifier: ^16.2.4
         version: 16.3.4(@types/node@22.20.2)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      postgres:
-        specifier: ^3.4.5
-        version: 3.4.9
       react:
         specifier: ^19
         version: 19.3.0
@@ -467,6 +467,19 @@ packages:
   '@vitest/utils@4.1.11':
     resolution: {integrity: sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==}
 
+  '@wtfalch/db@0.5.2':
+    resolution: {integrity: sha512-n4usvhe790mIovf6qV/Qsnq+mueLd4avKaw4S5OOWGlLh0KTDHJLa7o9Gkzueb3km0xnTKS+Y4Lm0jGn92A+PA==}
+    engines: {node: '>=22.0.0'}
+    hasBin: true
+    peerDependencies:
+      '@electric-sql/pglite': '>=0.5.0 <1.0.0'
+      drizzle-orm: '>=0.39.3 <1.0.0'
+    peerDependenciesMeta:
+      '@electric-sql/pglite':
+        optional: true
+      drizzle-orm:
+        optional: true
+
   assertion-error@2.0.1:
     resolution: {integrity: sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA==}
     engines: {node: '>=12'}
@@ -726,6 +739,10 @@ packages:
   postcss@8.5.28:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
     engines: {node: ^10 || ^12 || >=14}
+
+  postgres-array@3.0.4:
+    resolution: {integrity: sha512-nAUSGfSDGOaOAEGwqsRY27GPOea7CNipJPOA7lPbdEpx5Kg3qzdP0AaWC5MlhTWV9s4hFX39nomVZ+C4tnGOJQ==}
+    engines: {node: '>=12'}
 
   postgres@3.4.9:
     resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
@@ -1198,6 +1215,14 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
 
+  '@wtfalch/db@0.5.2(@electric-sql/pglite@0.5.8)(drizzle-orm@0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9))':
+    dependencies:
+      postgres: 3.4.9
+      postgres-array: 3.0.4
+    optionalDependencies:
+      '@electric-sql/pglite': 0.5.8
+      drizzle-orm: 0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9)
+
   assertion-error@2.0.1: {}
 
   baseline-browser-mapping@2.11.22: {}
@@ -1333,6 +1358,8 @@ snapshots:
       nanoid: 3.3.19
       picocolors: 1.1.1
       source-map-js: 1.2.1
+
+  postgres-array@3.0.4: {}
 
   postgres@3.4.9: {}
 

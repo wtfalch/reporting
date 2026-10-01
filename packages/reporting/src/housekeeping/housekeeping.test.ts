@@ -198,7 +198,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('on a real Postgres', () => {
   it('two containers claiming at once yield one runner', async () => {
     // Two independent reporting instances over two connection pools, the
     // way two containers are, racing for one due task.
-    const other = await testDbWithoutReset();
+    const other = (t.another as () => TestDb)();
     try {
       let runs = 0;
       const slow = (name: string) =>
@@ -228,18 +228,3 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('on a real Postgres', () => {
     }
   });
 });
-
-/** A second pool on the same real database, without dropping the schema again. */
-async function testDbWithoutReset(): Promise<TestDb> {
-  const { drizzle } = await import('drizzle-orm/postgres-js');
-  const postgres = (await import('postgres')).default;
-  const url = process.env.TEST_DATABASE_URL as string;
-  const client = postgres(url, { prepare: false, max: 4 });
-  return {
-    db: drizzle(client) as unknown as TestDb['db'],
-    exec: (text) => client.unsafe(text).then(() => undefined),
-    query: async (text) => [...(await client.unsafe(text))] as Record<string, unknown>[],
-    close: () => client.end(),
-    real: true,
-  };
-}

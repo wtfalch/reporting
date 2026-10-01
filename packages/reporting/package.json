@@ -1,6 +1,6 @@
 {
   "name": "@wtfalch/reporting",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "The estate's operational event log and housekeeping tick: a writer that never fails a request, a claim protocol that needs no scheduler, and the readers an operator opens. Per-app Postgres, host-supplied logger, framework-neutral core with a Next entry.",
   "repository": {
     "type": "git",
@@ -46,6 +46,10 @@
       "types": "./dist/react/errors.d.ts",
       "default": "./dist/react/errors.js"
     },
+    "./migrations-dir": {
+      "types": "./dist/migrations-dir.d.ts",
+      "default": "./dist/migrations-dir.js"
+    },
     "./migrations/*.sql": "./dist/migrations/*.sql",
     "./package.json": "./package.json"
   },
@@ -63,7 +67,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "drizzle-orm": ">=0.39.0",
+    "drizzle-orm": ">=0.39.3 <1.0.0",
     "next": ">=16.0.0",
     "react": ">=19.0.0",
     "zod": "^4.0.0"
@@ -77,9 +81,9 @@
     "@electric-sql/pglite": "^0.5.8",
     "@types/node": "^22",
     "@types/react": "^19",
-    "drizzle-orm": "^0.39.3",
+    "@wtfalch/db": "0.5.2",
+    "drizzle-orm": "0.39.3",
     "next": "^16.2.4",
-    "postgres": "^3.4.5",
     "react": "^19",
     "react-dom": "^19",
     "typescript": "^5.9.0",

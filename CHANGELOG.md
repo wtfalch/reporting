@@ -1,5 +1,131 @@
 # Changelog
 
+## 0.7.0 — unreleased
+
+Moves migration and the runtime role onto `@wtfalch/db` 0.5.2. 0.6.0 was never
+released: npm has 0.5.1, and a host moving from it takes every Breaking entry
+below and the 0.6.0 ones under "Breaking since 0.5.1".
+
+Breaking:
+
+- **The SQL names no role and no schema.** `migrations/0001` to `0003` and
+  `0006` to `0008` are edited in place (no database has applied them;
+  package-template ADR 0015 allows that where no consumer has applied a file).
+  The nine `SECURITY DEFINER` function definitions (seven distinct functions)
+  use `set search_path from current` instead of the literal `pg_catalog,
+  public`, so they find their tables in whatever schema the host migrated
+  into. Every `DO` block that computed `<database>_rt` to revoke and grant is
+  deleted. A host that applied the old files has a database these files would
+  no longer match; recreate it empty, as the estate's databases are in this
+  move.
+- **The revokes and grants move to the host.** `ensureRuntimeRole` from
+  `@wtfalch/db` replaces the `<database>_rt` blocks: `appendOnly`, `readOnly`,
+  `noDelete` and `grants` with seven schema-qualified function signatures. A
+  host that does not pass them has a runtime role that can UPDATE and DELETE
+  the event log and delete from every table. See "Moving from 0.6".
+- `drizzle-orm` peer is `>=0.39.3 <1.0.0` (was `>=0.39.0`); the devDependency
+  is `0.39.3`, the low end. Checked at both ends: `0.39.3` is the pinned
+  devDependency, and `0.45.3` was installed in turn, with a clean typecheck and
+  the full suite passing on PGlite and on Postgres 17.
+- `@wtfalch/db` 0.5.2 is a devDependency (tests); `postgres` left the
+  devDependencies. Neither is a dependency or a peer.
+
+Added:
+
+- `migrationsDir`, the absolute path of the shipped `.sql` files, from the
+  subpath `@wtfalch/reporting/migrations-dir`. The subpath imports only
+  `node:url`, so a migration image or a bundler never loads the main entry for
+  it. It is not exported from `@wtfalch/reporting`.
+- Tests: the fixture applies the migrations with `runMigrationSources`. With
+  `TEST_DATABASE_URL` each test file gets a uniquely named schema, dropped
+  after and when setup fails; `public` is never dropped or touched. A default-
+  tier test migrates into a named schema and proves the tables and functions
+  are not in `public`. The privilege tests log in as a role made by
+  `ensureRuntimeRole` and also run the `FOR UPDATE SKIP LOCKED` claim, the
+  error-capture savepoint and the `set local statement_timeout` prune batches
+  through it.
+
+Unchanged: the `reporting-migrations` copy bin and the `./migrations/*.sql`
+export; the bin is the second path, `runMigrationSources` the preferred one.
+The handle stays the native Drizzle one (`Db`).
+
+### Breaking since 0.5.1, the last release on npm
+
+1. 0.7.0: the two entries above, the `drizzle-orm` peer range.
+2. 0.6.0: `migrations/0007_errors_open_cap.sql` and
+   `migrations/0008_error_tenants.sql` are new, and **0008 must be applied
+   before upgrading**; without it capture logs a warning and writes no tenant
+   row. `errorsPage` and `errorDetail` take `tenantId`; with it they return
+   `TenantErrorRow`, and an empty, non-uuid or explicitly undefined `tenantId`
+   throws instead of reading every tenant. Error fingerprints hash the
+   redacted text, so a group that held PII starts a new row on upgrade.
+
+### Moving from 0.6
+
+Before, the host copied the SQL and relied on a role named after the database:
+
+```sh
+pnpm exec reporting-migrations   # into drizzle/, applied by the host's migrate script
+```
+
+The `DO` blocks revoked `UPDATE, DELETE, TRUNCATE` on the events and raw
+analytics tables, everything but `SELECT` on the rollups, and `DELETE,
+TRUNCATE` on five tables, then granted `EXECUTE` on the functions, all to
+`<database>_rt`. In a named schema on a shared database they would have found
+no such role and done nothing.
+
+After, with the owner credential, once per deploy (full docs:
+https://github.com/wtfalch/reporting/blob/main/packages/reporting/README.md):
+
+```ts
+import { migrationsDir as reportingMigrations } from '@wtfalch/reporting/migrations-dir';
+import { runMigrationSources } from '@wtfalch/db/migrate';
+import { ensureRuntimeRole } from '@wtfalch/db/runtime-role';
+
+await runMigrationSources({
+  url: ownerUrl,
+  schema: 'myservice',
+  sources: [
+    { name: 'reporting', dir: reportingMigrations }, // before the host's own
+    { name: 'app', dir: 'drizzle' },
+  ],
+});
+await ensureRuntimeRole({
+  ownerUrl,
+  runtimeUrl,
+  schemas: ['myservice'],
+  appendOnly: ['reporting_events', 'reporting_analytics'],
+  readOnly: ['reporting_analytics_daily', 'reporting_analytics_weekly'],
+  noDelete: ['reporting_tasks', 'reporting_settings', 'reporting_errors',
+             'reporting_tenant_settings', 'reporting_error_tenants'], // @wtfalch/db 0.5.2 or later
+  grants: [
+    'myservice.reporting_prune_events(interval, integer)',
+    'myservice.reporting_rollup_day(date)',
+    'myservice.reporting_rollup_week(date)',
+    'myservice.reporting_prune_analytics(interval, integer, date)',
+    'myservice.reporting_erase_person(text)',
+    'myservice.reporting_prune_errors(interval, integer)',
+    'myservice.reporting_prune_open_errors(integer, integer)',
+  ],
+});
+```
+
+Migrate with `@wtfalch/db` 0.5.2 or later. 0.5.0 and 0.5.1 let a temp table
+shadow a table inside a `SECURITY DEFINER` function; 0.5.2 puts `pg_temp`
+last on the runner's `search_path`. The runtime connection's `searchPath`
+must include `myservice`; pass `withDrizzle(...).orm` to `createReporting`.
+
+A host that copied the SQL with `reporting-migrations` must start over. Delete
+the copied `.sql` files and the copy marker (`.reporting-migrations.json`), then run the bin again into an
+empty database. The bin only adds files it has not copied, so an old copy of
+`0001` to `0006` stays: it keeps the literal `pg_catalog, public` search path
+and the `_rt` blocks, and only `0007` and `0008` would be copied.
+
+Fixed: two concurrent captures of one error could commit out of time order.
+The later commit then set `last_seen_at` before `first_seen_at`,
+`reporting_errors_seen_check` failed, and the count stayed low. `last_seen_at`
+now only moves forward.
+
 ## 0.6.0 — unreleased
 
 - `pruneErrors` is now exported from `@wtfalch/reporting/housekeeping`. It

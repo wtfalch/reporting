@@ -14,7 +14,7 @@ create or replace function reporting_prune_open_errors(cap integer, batch intege
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path from current
 as $$
 declare
   c integer := greatest(100, coalesce(cap, 5000));
@@ -40,12 +40,3 @@ revoke all on function reporting_prune_open_errors(integer, integer) from public
 comment on function reporting_prune_open_errors(integer, integer) is
   'Deletes the least recently seen open groups beyond `cap` per site. The only way an open row leaves on a timer: a bound on unauthenticated ingest, not an age limit.';
 
-do $$
-declare
-  rt text := current_database() || '_rt';
-begin
-  if exists (select 1 from pg_roles where rolname = rt) then
-    execute format('grant execute on function reporting_prune_open_errors(integer, integer) to %I', rt);
-  end if;
-end
-$$;

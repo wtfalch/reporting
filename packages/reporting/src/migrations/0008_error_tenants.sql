@@ -31,13 +31,5 @@ create index if not exists reporting_error_tenants_tenant_idx
 -- copying its occurrences to that tenant would credit it with every other
 -- tenant's history. Counts per tenant start at the deploy of 0.6.0.
 
--- Select, insert and update for the runtime role; nothing that deletes.
-do $$
-declare
-  rt text := current_database() || '_rt';
-begin
-  if exists (select 1 from pg_roles where rolname = rt) then
-    execute format('revoke delete, truncate on reporting_error_tenants from %I', rt);
-  end if;
-end
-$$;
+-- Select, insert and update for the runtime role; nothing that deletes (the
+-- host's ensureRuntimeRole call sets that; see the README).

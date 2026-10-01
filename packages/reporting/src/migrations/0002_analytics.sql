@@ -135,7 +135,7 @@ create or replace function reporting_rollup_day(d date)
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path from current
 as $$
 declare
   n integer;
@@ -231,7 +231,7 @@ create or replace function reporting_rollup_week(w date)
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path from current
 as $$
 declare
   n integer;
@@ -282,7 +282,7 @@ create or replace function reporting_prune_analytics(retention interval, batch i
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path from current
 as $$
 declare
   w interval := greatest(interval '7 days', least(coalesce(retention, interval '90 days'), interval '400 days'));
@@ -316,7 +316,7 @@ create or replace function reporting_erase_person(subject text)
 returns integer
 language plpgsql
 security definer
-set search_path = pg_catalog, public
+set search_path from current
 as $$
 declare
   n integer;
@@ -332,19 +332,5 @@ $$;
 revoke all on function reporting_erase_person(text) from public;
 
 -- The runtime role inserts and reads raw rows, reads the rollups, and
--- changes either only through the functions above.
-do $$
-declare
-  rt text := current_database() || '_rt';
-begin
-  if exists (select 1 from pg_roles where rolname = rt) then
-    execute format('revoke update, delete, truncate on reporting_analytics from %I', rt);
-    execute format('revoke insert, update, delete, truncate on reporting_analytics_daily from %I', rt);
-    execute format('revoke insert, update, delete, truncate on reporting_analytics_weekly from %I', rt);
-    execute format('grant execute on function reporting_rollup_day(date) to %I', rt);
-    execute format('grant execute on function reporting_rollup_week(date) to %I', rt);
-    execute format('grant execute on function reporting_prune_analytics(interval, integer, date) to %I', rt);
-    execute format('grant execute on function reporting_erase_person(text) to %I', rt);
-  end if;
-end
-$$;
+-- changes either only through the functions above (the host's
+-- ensureRuntimeRole call; see the README).
