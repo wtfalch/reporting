@@ -1,4 +1,5 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import { safeEqual } from '@wtfalch/utils/crypto';
 import { z } from 'zod';
 import type { Reporting } from '../types.js';
 import type { NextOnRequestError } from './index.js';
@@ -119,13 +120,6 @@ export interface EdgeErrorIngestOptions {
 
 const NO_CONTENT = () => new Response(null, { status: 204 });
 
-/** Constant-time so a network trace of response latency cannot narrow the secret. */
-function secretMatches(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 /**
  * The node half of the pair: not a public ingest like `clientErrorHandler`'s
  * (no origin allowance, no rate limiter, no batching) because it is not
@@ -140,7 +134,16 @@ export function createEdgeErrorIngestCollector(options: EdgeErrorIngestOptions):
   async function handle(request: Request): Promise<Response> {
     if (request.method !== 'POST') return NO_CONTENT();
     const provided = request.headers.get('x-reporting-edge-secret');
-    if (!provided || !secretMatches(provided, options.secret)) return NO_CONTENT();
+    if (!provided) return NO_CONTENT();
+    // safeEqual throws on a lone surrogate; a header value can't hold one, but
+    // a misconfigured secret could, and this route answers 204 either way.
+    let matches: boolean;
+    try {
+      matches = safeEqual(provided, options.secret);
+    } catch {
+      matches = false;
+    }
+    if (!matches) return NO_CONTENT();
     let json: unknown;
     try {
       json = await request.json();
