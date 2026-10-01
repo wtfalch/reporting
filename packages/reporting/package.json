@@ -81,7 +81,7 @@
     "@electric-sql/pglite": "^0.5.8",
     "@types/node": "^22",
     "@types/react": "^19",
-    "@wtfalch/db": "0.5.0",
+    "@wtfalch/db": "0.5.2",
     "drizzle-orm": "0.39.3",
     "next": "^16.2.4",
     "react": "^19",

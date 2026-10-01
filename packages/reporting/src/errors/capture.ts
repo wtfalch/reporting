@@ -222,7 +222,7 @@ async function upsertGroup(
         target: reportingErrors.fingerprint,
         set: {
           occurrences: sql`${reportingErrors.occurrences} + 1`,
-          lastSeenAt: s.at,
+          lastSeenAt: sql`greatest(${reportingErrors.lastSeenAt}, ${s.at.toISOString()}::timestamptz)`,
           message: s.message,
           stack: s.stack,
           tenantId: s.tenantId,

@@ -34,7 +34,9 @@ its own, then makes the runtime role. The runtime `searchPath` and
 `ensureRuntimeRole({ schemas })` must both cover that schema. The SQL names
 no schema and no role: its `SECURITY DEFINER` functions use `set search_path
 from current`, so they find their tables in whatever schema the host
-migrated into.
+migrated into. Migrate with `@wtfalch/db` 0.5.2 or later: 0.5.0 and 0.5.1
+let a temp table shadow a table inside a `SECURITY DEFINER` function, and
+0.5.2 puts `pg_temp` last on the runner's `search_path`.
 
 ```ts
 import { migrationsDir as reportingMigrations } from '@wtfalch/reporting/migrations-dir';
@@ -56,7 +58,7 @@ await ensureRuntimeRole({
   schemas: ['myservice'],
   appendOnly: ['reporting_events', 'reporting_analytics'], // insert and read only
   readOnly: ['reporting_analytics_daily', 'reporting_analytics_weekly'], // the rollups: written only by the functions
-  noDelete: [ // insert and update, never delete (needs @wtfalch/db 0.5.1)
+  noDelete: [ // insert and update, never delete (needs @wtfalch/db 0.5.2 or later)
     'reporting_tasks',
     'reporting_settings',
     'reporting_errors',
@@ -77,10 +79,8 @@ await ensureRuntimeRole({
 
 Run `ensureRuntimeRole` after every migration run: the lists apply to the
 tables that exist at that moment. `grants` entries are spliced into SQL, so
-they are trusted text. On `@wtfalch/db` 0.5.0, which has no `noDelete`, omit
-that list and run `revoke delete, truncate on <schema>.<table> from <role>`
-for the five tables with the owner credential after `ensureRuntimeRole`;
-without it the role can delete from them. These are the privileges the
+they are trusted text. Without `noDelete` the role can delete from those five
+tables. These are the privileges the
 package's own tests check, on a real Postgres, in a named schema.
 
 At boot, check the role over the runtime connection, whose `searchPath`
@@ -92,11 +92,15 @@ import { assertRuntimeRole } from '@wtfalch/db/runtime-role';
 await assertRuntimeRole(connection.database, {
   appendOnly: ['myservice.reporting_events', 'myservice.reporting_analytics'],
   readOnly: ['myservice.reporting_analytics_daily', 'myservice.reporting_analytics_weekly'],
+  noDelete: [
+    'myservice.reporting_tasks',
+    'myservice.reporting_settings',
+    'myservice.reporting_errors',
+    'myservice.reporting_tenant_settings',
+    'myservice.reporting_error_tenants',
+  ],
 });
 ```
-
-`assertRuntimeRole` cannot verify the DELETE-only revokes (`noDelete`) on
-0.5.0; 0.5.1 takes the same `noDelete` list.
 
 The runtime handle is the native Drizzle one: pass `withDrizzle(runtime, {
 schema: tables }).orm` (or `tx.orm`) from `@wtfalch/db/drizzle`.

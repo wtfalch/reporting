@@ -24,8 +24,8 @@ importers:
         specifier: ^19
         version: 19.3.0
       '@wtfalch/db':
-        specifier: 0.5.0
-        version: 0.5.0(@electric-sql/pglite@0.5.8)(drizzle-orm@0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9))
+        specifier: 0.5.2
+        version: 0.5.2(@electric-sql/pglite@0.5.8)(drizzle-orm@0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9))
       drizzle-orm:
         specifier: 0.39.3
         version: 0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9)
@@ -467,8 +467,8 @@ packages:
   '@vitest/utils@4.1.11':
     resolution: {integrity: sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==}
 
-  '@wtfalch/db@0.5.0':
-    resolution: {integrity: sha512-51/FCynMQPohFz2C8GL6cIcElCZr+VfnhAm/1gB+ujV7dvJZkajc7OT++yl5MZVWKaDc8zUYltvNwNHqqEBGEg==}
+  '@wtfalch/db@0.5.2':
+    resolution: {integrity: sha512-n4usvhe790mIovf6qV/Qsnq+mueLd4avKaw4S5OOWGlLh0KTDHJLa7o9Gkzueb3km0xnTKS+Y4Lm0jGn92A+PA==}
     engines: {node: '>=22.0.0'}
     hasBin: true
     peerDependencies:
@@ -1215,7 +1215,7 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
 
-  '@wtfalch/db@0.5.0(@electric-sql/pglite@0.5.8)(drizzle-orm@0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9))':
+  '@wtfalch/db@0.5.2(@electric-sql/pglite@0.5.8)(drizzle-orm@0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9))':
     dependencies:
       postgres: 3.4.9
       postgres-array: 3.0.4

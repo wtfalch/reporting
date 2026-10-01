@@ -2,7 +2,7 @@
 
 ## 0.7.0 — unreleased
 
-Moves migration and the runtime role onto `@wtfalch/db` 0.5.0. 0.6.0 was never
+Moves migration and the runtime role onto `@wtfalch/db` 0.5.2. 0.6.0 was never
 released: npm has 0.5.1, and a host moving from it takes every Breaking entry
 below and the 0.6.0 ones under "Breaking since 0.5.1".
 
@@ -27,7 +27,7 @@ Breaking:
   is `0.39.3`, the low end. Checked at both ends: `0.39.3` is the pinned
   devDependency, and `0.45.3` was installed in turn, with a clean typecheck and
   the full suite passing on PGlite and on Postgres 17.
-- `@wtfalch/db` 0.5.0 is a devDependency (tests); `postgres` left the
+- `@wtfalch/db` 0.5.2 is a devDependency (tests); `postgres` left the
   devDependencies. Neither is a dependency or a peer.
 
 Added:
@@ -97,7 +97,7 @@ await ensureRuntimeRole({
   appendOnly: ['reporting_events', 'reporting_analytics'],
   readOnly: ['reporting_analytics_daily', 'reporting_analytics_weekly'],
   noDelete: ['reporting_tasks', 'reporting_settings', 'reporting_errors',
-             'reporting_tenant_settings', 'reporting_error_tenants'], // @wtfalch/db 0.5.1
+             'reporting_tenant_settings', 'reporting_error_tenants'], // @wtfalch/db 0.5.2 or later
   grants: [
     'myservice.reporting_prune_events(interval, integer)',
     'myservice.reporting_rollup_day(date)',
@@ -110,10 +110,21 @@ await ensureRuntimeRole({
 });
 ```
 
-On `@wtfalch/db` 0.5.0 there is no `noDelete`: leave it out and revoke
-`delete, truncate` on those five tables from the runtime role with the owner
-credential after `ensureRuntimeRole`. The runtime connection's `searchPath`
+Migrate with `@wtfalch/db` 0.5.2 or later. 0.5.0 and 0.5.1 let a temp table
+shadow a table inside a `SECURITY DEFINER` function; 0.5.2 puts `pg_temp`
+last on the runner's `search_path`. The runtime connection's `searchPath`
 must include `myservice`; pass `withDrizzle(...).orm` to `createReporting`.
+
+A host that copied the SQL with `reporting-migrations` must start over. Delete
+the copied `.sql` files and the copy marker (`.reporting-migrations.json`), then run the bin again into an
+empty database. The bin only adds files it has not copied, so an old copy of
+`0001` to `0006` stays: it keeps the literal `pg_catalog, public` search path
+and the `_rt` blocks, and only `0007` and `0008` would be copied.
+
+Fixed: two concurrent captures of one error could commit out of time order.
+The later commit then set `last_seen_at` before `first_seen_at`,
+`reporting_errors_seen_check` failed, and the count stayed low. `last_seen_at`
+now only moves forward.
 
 ## 0.6.0 — unreleased
 

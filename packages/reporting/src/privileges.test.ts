@@ -17,9 +17,8 @@ import { type TestDb, memoryLog, testDb } from './test/db.js';
  * role that owns nothing. The lists below are the ones the README tells a
  * host to pass; this file is their test.
  *
- * `noDelete` arrived in @wtfalch/db 0.5.1, which is not published, so the
- * five insert-and-update tables get one plain REVOKE after the call. A host
- * on 0.5.1 passes `noDelete` instead and drops that statement.
+ * The role is built with `noDelete` for the five insert-and-update tables,
+ * as the README says. Needs @wtfalch/db 0.5.2 or later.
  */
 
 const URL_ = process.env.TEST_DATABASE_URL;
@@ -49,6 +48,13 @@ describe.skipIf(!URL_)('the runtime role', () => {
       schemas: [schema],
       appendOnly: ['reporting_events', 'reporting_analytics'],
       readOnly: ['reporting_analytics_daily', 'reporting_analytics_weekly'],
+      noDelete: [
+        'reporting_tasks',
+        'reporting_settings',
+        'reporting_errors',
+        'reporting_tenant_settings',
+        'reporting_error_tenants',
+      ],
       grants: [
         fn('reporting_prune_events(interval, integer)'),
         fn('reporting_rollup_day(date)'),
@@ -60,10 +66,6 @@ describe.skipIf(!URL_)('the runtime role', () => {
       ],
       log: () => undefined,
     });
-    // `noDelete` (db 0.5.1) for these five: update stays, delete and truncate go.
-    await t.exec(
-      `revoke delete, truncate on "${schema}".reporting_tasks, "${schema}".reporting_settings, "${schema}".reporting_errors, "${schema}".reporting_tenant_settings, "${schema}".reporting_error_tenants from "${rt}"`,
-    );
     runtime = createDatabase({
       url: () => runtimeUrl,
       searchPath: [schema],
@@ -90,7 +92,72 @@ describe.skipIf(!URL_)('the runtime role', () => {
     await assertRuntimeRole(runtime.database, {
       appendOnly: [`${schema}.reporting_events`, `${schema}.reporting_analytics`],
       readOnly: [`${schema}.reporting_analytics_daily`, `${schema}.reporting_analytics_weekly`],
+      noDelete: [
+        `${schema}.reporting_tasks`,
+        `${schema}.reporting_settings`,
+        `${schema}.reporting_errors`,
+        `${schema}.reporting_tenant_settings`,
+        `${schema}.reporting_error_tenants`,
+      ],
     });
+  });
+
+  // Every SECURITY DEFINER function in the fixture schema, read from the
+  // catalogue so a new one is covered without an edit here.
+  const definers = () =>
+    t.query(
+      `select p.oid::regprocedure::text as sig, p.proconfig
+         from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = '${schema}' and p.prosecdef
+        order by 1`,
+    );
+
+  it('every security definer function pins a search_path that ends with pg_temp', async () => {
+    const fns = await definers();
+    expect(fns.length).toBeGreaterThanOrEqual(7);
+    for (const f of fns) {
+      const config = (f.proconfig as string[] | null) ?? [];
+      const sp = config.find((c) => c.startsWith('search_path='));
+      expect(sp, `${f.sig} has no search_path`).toBeDefined();
+      expect((sp as string).split('=')[1]?.split(',').at(-1)?.trim(), `${f.sig}: ${sp}`).toBe(
+        'pg_temp',
+      );
+    }
+  });
+
+  it('public cannot execute any security definer function', async () => {
+    const fns = await definers();
+    expect(fns.length).toBeGreaterThanOrEqual(7);
+    for (const f of fns) {
+      const acl = await t.query(
+        `select has_function_privilege('public', '${f.sig}', 'execute') as pub`,
+      );
+      expect(acl[0]?.pub, `${f.sig} is executable by public`).toBe(false);
+    }
+  });
+
+  it('the fixture leaves public with no relations', async () => {
+    const rels = await t.query(
+      `select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f', 'S')`,
+    );
+    expect(rels).toEqual([]);
+  });
+
+  it('a temp table named like a real one cannot feed a definer function', async () => {
+    await runtime.database.transaction(async (tx) => {
+      await tx.query(
+        `create temp table reporting_analytics (like "${schema}".reporting_analytics including defaults) on commit drop`,
+      );
+      await tx.query(
+        "insert into reporting_analytics (id, occurred_at, site, name, path, device, user_id) values (1, '2001-01-01 12:00+00', 'forged', 'page.view', '/', 'desktop', 'f1')",
+      );
+      await tx.query("select reporting_rollup_day('2001-01-01'::date)");
+    });
+    const forged = await t.query(
+      "select count(*)::int as n from reporting_analytics_daily where site = 'forged'",
+    );
+    expect(forged[0]?.n).toBe(0);
   });
 
   it('can insert and read events, cannot update, delete or truncate them', async () => {
