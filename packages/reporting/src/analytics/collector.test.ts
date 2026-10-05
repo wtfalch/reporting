@@ -45,7 +45,7 @@ function collector(over: Partial<Parameters<typeof createCollector>[0]> = {}) {
     db: t.db,
     log,
     site: 'app',
-    sites: { wtfalch: { origins: ['https://wtfalch.dev'] } },
+    sites: { wtfalch: { origins: ['https://marketing.example'] } },
     getUserId: async (req) =>
       req.headers.get('cookie')?.includes('session=ok') ? 'user_ada' : null,
     tenantFor: async (userId, pathname, route) =>
@@ -120,11 +120,11 @@ describe('the collector', () => {
     const res = await c.handle(
       post(
         { site: 'wtfalch', events: [event({ path: '/blog/hello' })] },
-        { origin: 'https://wtfalch.dev', cookie: 'session=ok' },
+        { origin: 'https://marketing.example', cookie: 'session=ok' },
       ),
     );
     expect(res.status).toBe(204);
-    expect(res.headers.get('access-control-allow-origin')).toBe('https://wtfalch.dev');
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://marketing.example');
     expect(sessionRead).toBe(false);
     expect((await rows())[0]).toMatchObject({
       site: 'wtfalch',
@@ -138,7 +138,7 @@ describe('the collector', () => {
     const { c } = collector();
     for (const [body, headers] of [
       [{ site: 'wtfalch', events: [event()] }, { origin: 'https://evil.example' }],
-      [{ site: 'app', events: [event()] }, { origin: 'https://wtfalch.dev' }],
+      [{ site: 'app', events: [event()] }, { origin: 'https://marketing.example' }],
       [{ site: 'wtfalch', events: [event()] }, { origin: `https://${HOST}` }],
     ] as const) {
       const res = await c.handle(post(body, headers));
@@ -176,10 +176,10 @@ describe('the collector', () => {
     const ok = await c.handle(
       new Request(`https://${HOST}/x`, {
         method: 'OPTIONS',
-        headers: { host: HOST, origin: 'https://wtfalch.dev' },
+        headers: { host: HOST, origin: 'https://marketing.example' },
       }),
     );
-    expect(ok.headers.get('access-control-allow-origin')).toBe('https://wtfalch.dev');
+    expect(ok.headers.get('access-control-allow-origin')).toBe('https://marketing.example');
     const no = await c.handle(
       new Request(`https://${HOST}/x`, {
         method: 'OPTIONS',
