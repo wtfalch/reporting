@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createFakeReporting } from '../fake/index.js';
+import { createFakeReporting } from '../test/fake-reporting.js';
 import { createEdgeErrorIngestCollector, edgeErrorHandler } from './edge-errors.js';
 
 const SECRET = 'test-shared-secret';

@@ -291,11 +291,10 @@ the rollups hold nothing to erase. Call it in the host's erasure transaction.
 
 ## Tests
 
-```ts
-import { createFakeReporting } from '@wtfalch/reporting/fake';
-```
-
-Same validation, no database; `fake.rows` is the table.
+No package ships a stand-in for a service. `createFakeReporting` (same
+validation, no database, `fake.rows` is the table) is this package's own
+unexported test double, under `src/test/`, for its own test files only -- a
+host writes its own double, or runs this package against a real database.
 
 ## What this package never does
 

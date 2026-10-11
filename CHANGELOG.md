@@ -29,6 +29,10 @@ Breaking:
   the full suite passing on PGlite and on Postgres 17.
 - `@wtfalch/db` 0.5.2 is a devDependency (tests); `postgres` left the
   devDependencies. Neither is a dependency or a peer.
+- **The `./fake` export is gone.** No package ships a stand-in for a service.
+  `createFakeReporting` moved to `src/test/fake-reporting.ts`, this package's
+  own unexported test double; a host writes its own double, or runs this
+  package against a real database.
 
 Added:
 
