@@ -125,10 +125,40 @@ const PII_PATTERNS: readonly [RegExp, string][] = [
   [/\b(authorization\s*[:=]\s*)(?:(?:bearer|basic|token)\s+)?[^\s,;'"]+/gi, '$1[redacted: token]'],
   // A scheme followed by a credential, anywhere.
   [/\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted: token]'],
-  // Well-known prefixed token formats.
+  // The same scheme followed by a credential under 8 chars (issue #50). The
+  // first lookahead requires the run right after the scheme to be short (so
+  // it does not re-match a run the rule above already caught) and to end at
+  // a word boundary; both bounds mean this can only ever inspect the same
+  // handful of characters, never rescan the rest of the string. The second
+  // lookahead requires a digit or symbol in that run, which is what tells a
+  // token apart from an ordinary word like "of" in "Bearer of bad news".
   [
-    /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|(?:AKIA|ASIA)[0-9A-Z]{16}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{30,})\b/g,
+    /\b(bearer|basic)\s+(?=\S{1,7}(?:\s|$))(?=[A-Za-z0-9._~+/=-]*[0-9._~+/=-])[A-Za-z0-9._~+/=-]{1,7}/gi,
+    '$1 [redacted: token]',
+  ],
+  // Well-known prefixed token formats. `sk-` excludes `live-`/`test-` right
+  // after the prefix so it never touches the hyphenated Stripe-shaped key an
+  // existing test (capture.test.ts) requires to stay unredacted when it is
+  // not a named held secret -- only OpenAI's and Anthropic's own `sk-...`
+  // and `sk-ant-...` shapes are meant to match here.
+  [
+    /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,}|(?:AKIA|ASIA)[0-9A-Z]{16}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{30,}|sk-(?!live-|test-)[A-Za-z0-9_-]{16,200}|SG\.[A-Za-z0-9_-]{10,40}\.[A-Za-z0-9_-]{10,64}|whsec_[A-Za-z0-9]{16,64}|npm_[A-Za-z0-9]{20,64})\b/g,
     '[redacted: token]',
+  ],
+  // A short Slack token (issue #50): the same `xox[abprs]-` shape as above,
+  // bounded to the 4-9 chars the {10,} rule does not reach.
+  [/\bxox[abprs]-[A-Za-z0-9-]{4,9}\b/g, '[redacted: token]'],
+  // A Slack incoming-webhook URL: the three path segments are bounded to
+  // realistic lengths (team id, bot id, token), never an open-ended scan.
+  [
+    /\bhttps:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9]{6,15}\/[A-Za-z0-9]{6,15}\/[A-Za-z0-9]{6,40}\b/gi,
+    '[redacted: webhook]',
+  ],
+  // An AWS secret access key: not prefixed, so it is only caught behind its
+  // own label -- a bare 40-char base64 run is too common to redact on sight.
+  [
+    /(aws[_-]?secret[_-]?access[_-]?key)(["']?\s*[:=]\s*["']?)[A-Za-z0-9/+]{40}(["']?)/gi,
+    '$1$2[redacted: secret]$3',
   ],
 ];
 

@@ -309,3 +309,81 @@ describe('redactPii: more credential shapes', () => {
     expect(out).toBe(input);
   });
 });
+
+describe('redactPii: vendor credential formats left uncovered by #47 (issue #50)', () => {
+  const cases: [string, string, string][] = [
+    [
+      'OpenAI key',
+      'key sk-abcdefghijklmnopqrstuvwxyzABCDEF0123 leaked',
+      'sk-abcdefghijklmnopqrstuvwxyzABCDEF0123',
+    ],
+    [
+      'Anthropic key',
+      'key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789 leaked',
+      'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789',
+    ],
+    [
+      'SendGrid key',
+      'key SG.abcdefghijklmnop1234.abcdefghijklmnopqrstuvwxyz0123456789ABCD leaked',
+      'SG.abcdefghijklmnop1234.abcdefghijklmnopqrstuvwxyz0123456789ABCD',
+    ],
+    [
+      'Stripe webhook secret',
+      'key whsec_abcdefghijklmnopqrstuvwxyz0123 leaked',
+      'whsec_abcdefghijklmnopqrstuvwxyz0123',
+    ],
+    [
+      'npm token',
+      'key npm_abcdefghijklmnopqrstuvwxyz0123456789 leaked',
+      'npm_abcdefghijklmnopqrstuvwxyz0123456789',
+    ],
+    [
+      'Slack webhook URL',
+      'posting to https://hooks.slack.com/services/exampleTeamId/exampleBotId1/exampleWebhookToken1234 now',
+      'exampleTeamId/exampleBotId1/exampleWebhookToken1234',
+    ],
+    ['short Slack token', 'key xoxb-1234567 leaked', 'xoxb-1234567'],
+    [
+      'AWS secret access key',
+      'aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY end',
+      'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    ],
+    [
+      'AWS secret access key, quoted',
+      '{"aws_secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}',
+      'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    ],
+    ['short bearer token', 'sent Bearer a1B2c3 to upstream', 'a1B2c3'],
+    ['short basic token', 'sent Basic x9z end', 'x9z'],
+  ];
+
+  for (const [name, input, leaked] of cases) {
+    it(`redacts a ${name}`, () => {
+      const out = redactPii(input);
+      expect(out).not.toContain(leaked);
+      expect(out).toContain('[redacted');
+    });
+  }
+
+  it('keeps the label around a redacted AWS secret access key', () => {
+    expect(redactPii('aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY end')).toBe(
+      'aws_secret_access_key=[redacted: secret] end',
+    );
+  });
+
+  it('still leaves "Bearer of bad news" alone -- a short word is not a token', () => {
+    const text =
+      'at Object.get (/app/node_modules/.pnpm/lodash@4.17.20/node_modules/lodash/index.js:100:5) Bearer of bad news';
+    expect(redactPii(text)).toBe(text);
+  });
+
+  it('leaves a bare 40-char base64 run alone without the aws_secret_access_key label', () => {
+    const text = 'digest wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY end';
+    expect(redactPii(text)).toBe(text);
+  });
+
+  it('leaves a hyphenated sk-live-/sk-test- value alone -- that shape is Stripe-reserved, not OpenAI/Anthropic', () => {
+    const text = 'could not charge with key sk-live-abcdef0123456789';
+    expect(redactPii(text)).toBe(text);
+  });
+});

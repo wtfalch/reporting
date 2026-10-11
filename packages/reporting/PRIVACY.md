@@ -81,13 +81,16 @@ What is redacted from `message` and `stack` before storage:
 
 - The exact values of `KEYSTORE_KEK`, `KEYSTORE_KEK_PREVIOUS` and any
   variable named in `redactEnvVars`.
-- By pattern: email addresses, `Bearer`/`Basic` credentials, an
+- By pattern: email addresses, `Bearer`/`Basic` credentials (any length, down
+  to a single character once it has a digit or symbol in it), an
   `Authorization` header's value (plain or as a JSON `"authorization"`
   string of any length), JWTs, `Cookie` and `Set-Cookie` header values, PEM
   private key blocks, `password=`, `passwd=`, `token=`, `api_key=` and
-  `secret=` pairs (query string or form body), and these key formats:
-  GitHub, Slack, AWS (`AKIA` and `ASIA`), Stripe (`sk_live_`, `sk_test_`,
-  `rk_live_`) and Google (`AIza`).
+  `secret=` pairs (query string or form body), a labelled
+  `aws_secret_access_key`, a Slack incoming-webhook URL, and these key
+  formats: GitHub, Slack (`xoxb-` and friends, long or short), AWS (`AKIA`
+  and `ASIA`), Stripe (`sk_live_`, `sk_test_`, `rk_live_`, `whsec_`), Google
+  (`AIza`), OpenAI/Anthropic (`sk-`), SendGrid (`SG.`) and npm (`npm_`).
 - `message` and `stack` are cut to their size limit before the patterns run,
   so a hostile error text cannot make redaction slow.
 
