@@ -4,7 +4,7 @@ vi.mock('next/headers', () => ({ headers: async () => ({ get: () => null }) }));
 vi.mock('next/navigation', () => ({ unstable_rethrow: () => {} }));
 vi.mock('next/server', () => ({ after: () => {}, connection: async () => {} }));
 
-import { createFakeReporting } from '../fake/index.js';
+import { createFakeReporting } from '../test/fake-reporting.js';
 import { clientErrorHandler, errorHandler } from './index.js';
 
 const HOST = 'app.example.test';
