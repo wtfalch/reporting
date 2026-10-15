@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.8.0 — unreleased
+## 0.8.1
+
+0.8.0 as released. The 0.8.0 tag never published: a timing test in
+`redact.test.ts` (400k characters in under 200 ms) failed on GitHub's runner at
+214 ms. The limit is now 1 s, which still catches a backtracking regex.
+
+## 0.8.0 — not published
 
 Release health for blue/green deploys. Migrations `0009` and `0010`; apply them
 and add `reporting_requests` to the host's `noDelete` list (see the README).
