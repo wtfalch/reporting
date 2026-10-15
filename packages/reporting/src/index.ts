@@ -4,6 +4,7 @@ import { ANALYTICS_NAME_PATTERN, normalisePath, propsSchema } from './analytics/
 import { insertAnalytics } from './analytics/write.js';
 import { createCapture } from './errors/capture.js';
 import { eventsPage } from './reader.js';
+import { RequestCounter } from './requests.js';
 import { environmentSchema, siteSchema } from './schema.js';
 import { getSettings, getTenantRetention, setSettings, setTenantRetention } from './settings.js';
 import { tables } from './tables.js';
@@ -72,6 +73,13 @@ export function createReporting(options: ReportingOptions): Reporting {
     batchSize: options.batchSize ?? 500,
     flushEveryMs: options.flushEveryMs ?? 1000,
   });
+  const requests = new RequestCounter({
+    db: options.db,
+    log: options.log,
+    site,
+    now,
+    flushEveryMs: options.requestFlushEveryMs ?? 10_000,
+  });
   // One alerting path, shared by `reporting.alert()` and a new-or-reopened
   // capture (errors/capture.ts's `alert` option): an `alert.<check>` row,
   // already indexed and pruned the same as everything else on the
@@ -108,7 +116,11 @@ export function createReporting(options: ReportingOptions): Reporting {
     event: (input) => writer.event(input),
     captureError: (error, context) => capture(error, context),
     alert: fireAlert,
-    flush: (opts) => writer.flush(opts),
+    flush: async (opts) => {
+      await writer.flush(opts);
+      await requests.flush();
+    },
+    requests: { record: (status) => requests.record(status) },
     events: { page: (opts) => eventsPage(options.db, opts) },
     settings: {
       get: () => getSettings(options.db),

@@ -31,6 +31,8 @@ export const reportingEvents = pgTable(
     kindNs: text('kind_ns').generatedAlwaysAs(sql`split_part(kind, '.', 1)`),
     site: text('site').notNull(),
     environment: text('environment'),
+    release: text('release'),
+    color: text('color'),
     tenantId: uuid('tenant_id'),
     actorClass: text('actor_class'),
     actorId: text('actor_id'),
@@ -119,6 +121,8 @@ export const reportingAnalytics = pgTable(
       .notNull()
       .default(sql`'{}'::jsonb`),
     schemaVersion: smallint('schema_version').notNull().default(1),
+    release: text('release'),
+    color: text('color'),
   },
   (t) => [
     index('reporting_analytics_site_time_idx').on(t.site, t.occurredAt.desc(), t.id.desc()),
@@ -205,6 +209,7 @@ export const reportingErrors = pgTable(
     stack: text('stack'),
     runtime: text('runtime').notNull(),
     release: text('release'),
+    color: text('color'),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
     occurrences: bigint('occurrences', { mode: 'number' }).notNull().default(1),
@@ -256,18 +261,46 @@ export type ReportingErrorRow = typeof reportingErrors.$inferSelect;
  */
 export type TenantErrorRow = Omit<
   ReportingErrorRow,
-  'message' | 'stack' | 'runtime' | 'release' | 'requestId' | 'resolvedBy' | 'state' | 'resolvedAt'
+  | 'message'
+  | 'stack'
+  | 'runtime'
+  | 'release'
+  | 'color'
+  | 'requestId'
+  | 'resolvedBy'
+  | 'state'
+  | 'resolvedAt'
 > & {
   readonly message: null;
   readonly stack: null;
   readonly runtime: null;
   readonly release: null;
+  readonly color: null;
   readonly requestId: null;
   readonly resolvedBy: null;
   /** Triage state is shared across tenants, so a tenant cannot see it. */
   readonly state: null;
   readonly resolvedAt: null;
 };
+
+/** Request and 5xx counts per minute, color and release; mirrored from migrations/0010_requests.sql. */
+export const reportingRequests = pgTable(
+  'reporting_requests',
+  {
+    bucket: timestamp('bucket', { withTimezone: true }).notNull(),
+    site: text('site').notNull(),
+    color: text('color').notNull().default(''),
+    release: text('release').notNull().default(''),
+    requests: bigint('requests', { mode: 'number' }).notNull().default(0),
+    errors: bigint('errors', { mode: 'number' }).notNull().default(0),
+  },
+  (t) => [
+    primaryKey({
+      name: 'reporting_requests_pkey',
+      columns: [t.bucket, t.site, t.color, t.release],
+    }),
+  ],
+);
 
 export const tables = {
   events: reportingEvents,
@@ -279,4 +312,5 @@ export const tables = {
   analyticsWeekly: reportingAnalyticsWeekly,
   errors: reportingErrors,
   errorTenants: reportingErrorTenants,
+  requests: reportingRequests,
 };

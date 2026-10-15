@@ -8,6 +8,11 @@ import type { Reporting } from '../types.js';
 import { type ClientErrorCollectorOptions, createClientErrorCollector } from './client-errors.js';
 import { type EdgeErrorIngestOptions, createEdgeErrorIngestCollector } from './edge-errors.js';
 
+export {
+  releaseHealthHandler,
+  withRequestCount,
+  type ReleaseHealthOptions,
+} from './release-health.js';
 export { edgeErrorHandler, type EdgeCaptureOptions, type EdgeErrorReport } from './edge-errors.js';
 
 /**

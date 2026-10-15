@@ -95,6 +95,8 @@ export interface ReportingOptions {
   batchSize?: number;
   /** Timer flush interval, ms. Default 1,000. */
   flushEveryMs?: number;
+  /** How often counted requests are written, ms. Default 10,000. */
+  requestFlushEveryMs?: number;
 }
 
 export interface EventsPageOptions {
@@ -202,6 +204,8 @@ export interface Reporting {
   readonly site: string;
   readonly log: Logger;
   readonly analytics: Analytics;
+  /** Counts one response for the release-health read; `flush` writes the counts. Never throws. */
+  readonly requests: { record(status: number): void };
   stats(): Stats;
 }
 

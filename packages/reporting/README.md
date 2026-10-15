@@ -64,6 +64,7 @@ await ensureRuntimeRole({
     'reporting_errors',
     'reporting_tenant_settings',
     'reporting_error_tenants',
+    'reporting_requests',
   ],
   grants: [ // the seven security definer functions, schema-qualified
     'myservice.reporting_prune_events(interval, integer)',
@@ -79,7 +80,7 @@ await ensureRuntimeRole({
 
 Run `ensureRuntimeRole` after every migration run: the lists apply to the
 tables that exist at that moment. `grants` entries are spliced into SQL, so
-they are trusted text. Without `noDelete` the role can delete from those five
+they are trusted text. Without `noDelete` the role can delete from those six
 tables. These are the privileges the
 package's own tests check, on a real Postgres, in a named schema.
 
@@ -98,6 +99,7 @@ await assertRuntimeRole(connection.database, {
     'myservice.reporting_errors',
     'myservice.reporting_tenant_settings',
     'myservice.reporting_error_tenants',
+    'myservice.reporting_requests',
   ],
 });
 ```
@@ -204,6 +206,31 @@ function clamps whatever it is handed to the same bounds, so an operator's
 edit can shorten history to a week and no further. Pass `audit` to
 `createReporting` to have every change handed to your audit ledger after it
 commits.
+
+## Release health (0.8.0)
+
+With `REPORTING_RELEASE` (an image digest) and `REPORTING_COLOR` (`blue` or
+`green`) set, every event, analytics and error row carries both. Count each
+response and mount the read foundry judges a new color by:
+
+```ts
+// app/api/reporting/release-health/route.ts
+import { releaseHealthHandler } from '@wtfalch/reporting/next';
+export const GET = releaseHealthHandler({ db, reporting });
+
+// any route handler: counted per minute, color and release (status >= 500 is an error)
+import { withRequestCount } from '@wtfalch/reporting/next';
+export const POST = withRequestCount(reporting, async (req) => Response.json({ ok: true }));
+```
+
+`reporting.requests.record(status)` is the same count for a host that has no
+route handler to wrap. Counts sit in memory and are written once per minute
+bucket (every 10 seconds by default; `reporting.flush()` writes them now). The
+read needs `Authorization: Bearer $REPORTING_HEALTH_TOKEN`: 401 for a missing or
+wrong token, 503 when the variable is unset. It answers `from` and `to` (ISO,
+`from` before `to`, at most 8 days; otherwise 400) with request and 5xx counts
+per color and the per-day average of the 7 days before `from`. Counts only; no
+event content. Rows of `reporting_requests` are not pruned.
 
 ## Shutdown
 

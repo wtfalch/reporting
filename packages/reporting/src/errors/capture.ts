@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
+import { deployTags } from '../deploy.js';
 import { ERROR_RUNTIMES, KIND_PATTERN, LIMITS } from '../schema.js';
 import type { ErrorRuntime } from '../schema.js';
 import { reportingErrorTenants, reportingErrors } from '../tables.js';
@@ -147,6 +148,7 @@ interface GroupSample {
   readonly stack: string | null;
   readonly runtime: ErrorRuntime;
   readonly release: string | null;
+  readonly color: string | null;
   readonly environment: string | null;
   readonly tenantId: string | null;
   readonly requestId: string | null;
@@ -211,6 +213,7 @@ async function upsertGroup(
         stack: s.stack,
         runtime: s.runtime,
         release: s.release,
+        color: s.color,
         environment: s.environment,
         firstSeenAt: s.at,
         lastSeenAt: s.at,
@@ -228,6 +231,7 @@ async function upsertGroup(
           tenantId: s.tenantId,
           requestId: s.requestId,
           release: s.release,
+          color: s.color,
           environment: s.environment,
           state: reopened,
           resolvedAt: sql`case when ${reportingErrors.state} in ('resolved', 'ignored') then null else ${reportingErrors.resolvedAt} end`,
@@ -339,6 +343,7 @@ export function createCapture(o: CaptureOptions) {
         stack,
         runtime,
         release,
+        color: deployTags().color,
         environment,
         tenantId,
         requestId,

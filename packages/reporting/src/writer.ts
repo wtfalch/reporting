@@ -1,3 +1,4 @@
+import { deployTags } from './deploy.js';
 import { type ValidEvent, eventInputSchema } from './schema.js';
 import { reportingEvents } from './tables.js';
 import type { Db, EventInput, Logger, Mode, Stats } from './types.js';
@@ -94,6 +95,7 @@ export class Writer {
       kind: v.kind,
       site: this.o.site,
       environment: this.o.environment,
+      ...deployTags(),
       tenantId: v.tenantId ?? null,
       actorClass: v.actor?.class ?? null,
       actorId: v.actor?.id ?? null,
