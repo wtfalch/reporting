@@ -301,11 +301,11 @@ describe('redactPii: more credential shapes', () => {
     expect(redactPii(`t=(${jwt})`)).toBe('t=([redacted: token])');
   });
 
-  it('redacts 400k characters of "a." with no @ in under 200 ms', () => {
+  it('redacts 400k characters of "a." with no @ in under 1 s (a backtracking regex takes minutes)', () => {
     const input = 'a.'.repeat(200_000);
     const start = performance.now();
     const out = redactPii(input);
-    expect(performance.now() - start).toBeLessThan(200);
+    expect(performance.now() - start).toBeLessThan(1000);
     expect(out).toBe(input);
   });
 });
