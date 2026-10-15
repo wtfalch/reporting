@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { and, gte, lt, sql } from 'drizzle-orm';
+import { unstable_rethrow } from 'next/navigation';
 import { connection } from 'next/server';
 import { z } from 'zod';
 import { reportingRequests } from '../tables.js';
@@ -115,9 +116,24 @@ export function releaseHealthHandler(options: ReleaseHealthOptions) {
   };
 }
 
+// Any status under 500: the request is counted, and not as an error.
+const CONTROL_FLOW_STATUS = 307;
+
+function isNextControlFlow(error: unknown): boolean {
+  try {
+    unstable_rethrow(error);
+    return false;
+  } catch {
+    // unstable_rethrow throws only for Next's internal control-flow errors.
+    return true;
+  }
+}
+
 /**
  * Wraps a route handler so each response is counted. A handler that throws is
- * counted as a 500 and the throw goes on.
+ * counted as a 500 and the throw goes on. Next's own control-flow throws
+ * (`redirect()`, `notFound()` and the like) are counted as a request, not an
+ * error, so they cannot push a release toward rollback.
  */
 export function withRequestCount<A extends unknown[]>(
   reporting: Pick<Reporting, 'requests'>,
@@ -129,7 +145,7 @@ export function withRequestCount<A extends unknown[]>(
       reporting.requests.record(response.status);
       return response;
     } catch (error) {
-      reporting.requests.record(500);
+      reporting.requests.record(isNextControlFlow(error) ? CONTROL_FLOW_STATUS : 500);
       throw error;
     }
   };
