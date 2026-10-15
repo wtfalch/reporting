@@ -1,7 +1,7 @@
+import { notFound, redirect } from 'next/navigation';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createReporting } from '../index.js';
 import { type TestDb, memoryLog, testDb } from '../test/db.js';
-import { notFound, redirect } from 'next/navigation';
 import { releaseHealthHandler, withRequestCount } from './release-health.js';
 
 vi.mock('next/server', () => ({ after: () => {}, connection: async () => {} }));
@@ -181,7 +181,9 @@ describe('withRequestCount', () => {
     const seen: number[] = [];
     const counting = { requests: { record: (s: number) => void seen.push(s) } };
     const redirecting = withRequestCount(counting, async () => redirect('/login'));
-    await expect(redirecting()).rejects.toMatchObject({ digest: expect.stringMatching(/^NEXT_REDIRECT/) });
+    await expect(redirecting()).rejects.toMatchObject({
+      digest: expect.stringMatching(/^NEXT_REDIRECT/),
+    });
     const missing = withRequestCount(counting, async () => notFound());
     await expect(missing()).rejects.toBeDefined();
     expect(seen).toHaveLength(2);

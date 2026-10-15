@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { RequestCounter } from '../requests.js';
-import { memoryLog, testDb, type TestDb } from '../test/db.js';
+import { type TestDb, memoryLog, testDb } from '../test/db.js';
 import { releaseHealthHandler } from './release-health.js';
 
 vi.mock('next/server', () => ({ after: () => {}, connection: async () => {} }));
@@ -37,10 +37,9 @@ const call = (site: string, from: string, to: string) =>
     reporting: { site, log: memoryLog() } as never,
     token: () => 'secret',
   })(
-    new Request(
-      `http://app.test/x?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      { headers: { authorization: 'Bearer secret' } },
-    ),
+    new Request(`http://app.test/x?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, {
+      headers: { authorization: 'Bearer secret' },
+    }),
   );
 
 describe('refuter: release health boundaries', () => {
@@ -49,7 +48,9 @@ describe('refuter: release health boundaries', () => {
     await record('site-a', 'blue', '2030-01-09T12:00:00Z', [200, 200, 500, 500, 200, 200, 200]);
     await record('site-b', 'blue', '2030-01-10T12:00:00Z', [500, 500, 500]);
     await record('site-b', 'green', '2030-01-09T12:00:00Z', [200, 200, 200, 200, 200, 200, 200]);
-    const body = await (await call('site-a', '2030-01-10T11:00:00Z', '2030-01-10T13:00:00Z')).json();
+    const body = await (
+      await call('site-a', '2030-01-10T11:00:00Z', '2030-01-10T13:00:00Z')
+    ).json();
     expect(body.colors).toEqual({
       blue: { requests: 2, errors: 1 },
       green: { requests: 0, errors: 0 },
@@ -83,7 +84,9 @@ describe('refuter: release health boundaries', () => {
   });
 
   it('returns zero for an empty window and sums two releases of one color', async () => {
-    const empty = await (await call('nothing', '2030-05-10T11:00:00Z', '2030-05-10T12:00:00Z')).json();
+    const empty = await (
+      await call('nothing', '2030-05-10T11:00:00Z', '2030-05-10T12:00:00Z')
+    ).json();
     expect(empty.colors).toEqual({
       blue: { requests: 0, errors: 0 },
       green: { requests: 0, errors: 0 },
@@ -97,7 +100,9 @@ describe('refuter: release health boundaries', () => {
       c.record(500);
       await c.flush();
     }
-    const two = await (await call('two-rel', '2030-05-10T11:00:00Z', '2030-05-10T12:00:00Z')).json();
+    const two = await (
+      await call('two-rel', '2030-05-10T11:00:00Z', '2030-05-10T12:00:00Z')
+    ).json();
     expect(two.colors.blue).toEqual({ requests: 4, errors: 2 });
   });
 
@@ -109,7 +114,9 @@ describe('refuter: release health boundaries', () => {
     });
     const q = 'from=2030-06-01T00:00:00Z&to=2030-06-01T01:00:00Z';
     for (const auth of ['Bearer ', 'Bearer', 'bearer secret', 'Bearer secret extra', 'secret']) {
-      const res = await h(new Request(`http://a.test/x?${q}`, { headers: { authorization: auth } }));
+      const res = await h(
+        new Request(`http://a.test/x?${q}`, { headers: { authorization: auth } }),
+      );
       expect(res.status, auth).toBe(401);
     }
   });
