@@ -1,3 +1,4 @@
+import { deployTags } from '../deploy.js';
 import { reportingAnalytics } from '../tables.js';
 import type { Db } from '../types.js';
 import type { Device } from './schema.js';
@@ -21,6 +22,7 @@ export interface AnalyticsRow {
 
 export async function insertAnalytics(db: Db, rows: readonly AnalyticsRow[]): Promise<void> {
   if (rows.length === 0) return;
+  const tags = deployTags();
   await db.insert(reportingAnalytics).values(
     rows.map((r) => ({
       occurredAt: r.occurredAt,
@@ -36,6 +38,7 @@ export async function insertAnalytics(db: Db, rows: readonly AnalyticsRow[]): Pr
       device: r.device,
       country: r.country,
       props: r.props,
+      ...tags,
     })),
   );
 }

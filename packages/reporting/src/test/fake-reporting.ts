@@ -79,6 +79,8 @@ export function createFakeReporting(
         kindNs: v.kind.split('.')[0] ?? '',
         site,
         environment,
+        release: null,
+        color: null,
         tenantId: v.tenantId ?? null,
         actorClass: v.actor?.class ?? null,
         actorId: v.actor?.id ?? null,
@@ -96,6 +98,7 @@ export function createFakeReporting(
     },
     captureError: (error, context) => capture(error, context),
     async flush() {},
+    requests: { record() {} },
     events: {
       async page(o: EventsPageOptions = {}) {
         const limit = Math.max(1, Math.min(o.limit ?? 50, 200));

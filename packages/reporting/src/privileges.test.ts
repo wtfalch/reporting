@@ -54,6 +54,7 @@ describe.skipIf(!URL_)('the runtime role', () => {
         'reporting_errors',
         'reporting_tenant_settings',
         'reporting_error_tenants',
+        'reporting_requests',
       ],
       grants: [
         fn('reporting_prune_events(interval, integer)'),
@@ -98,6 +99,7 @@ describe.skipIf(!URL_)('the runtime role', () => {
         `${schema}.reporting_errors`,
         `${schema}.reporting_tenant_settings`,
         `${schema}.reporting_error_tenants`,
+        `${schema}.reporting_requests`,
       ],
     });
   });

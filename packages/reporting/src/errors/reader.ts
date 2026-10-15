@@ -43,6 +43,7 @@ function tenantColumns() {
     stack: sql<null>`null`.as('stack'),
     runtime: sql<null>`null`.as('runtime'),
     release: sql<null>`null`.as('release'),
+    color: sql<null>`null`.as('color'),
     requestId: sql<null>`null`.as('request_id'),
     resolvedBy: sql<null>`null`.as('resolved_by'),
     state: sql<null>`null`.as('state'),

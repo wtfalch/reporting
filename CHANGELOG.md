@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.0 — unreleased
+
+Release health for blue/green deploys. Migrations `0009` and `0010`; apply them
+and add `reporting_requests` to the host's `noDelete` list (see the README).
+
+- Every row in `reporting_events`, `reporting_analytics` and `reporting_errors`
+  carries `release` and `color`, from `REPORTING_RELEASE` and `REPORTING_COLOR`
+  (`reporting_errors` already had `release`). Both are nullable; a color other
+  than `blue` or `green` is stored as null. Existing rows stay null.
+- `reporting_requests` counts requests and 5xx responses per minute, site, color
+  and release, one upserted row per bucket. `reporting.requests.record(status)`
+  counts in memory; `reporting.flush()` writes. `withRequestCount` from
+  `/next` wraps a route handler. New option `requestFlushEveryMs` (10,000).
+- `releaseHealthHandler` from `/next`: `GET` with `from` and `to`, bearer token
+  from `REPORTING_HEALTH_TOKEN` (401 wrong or missing, 503 unset). Returns
+  request and error counts per color and the 7-day per-day average before
+  `from`. Counts only.
+- `Reporting` gains `requests`; a host that implements the type needs it.
+  `ReportingEventRow` and `ReportingErrorRow` gain `release`/`color`.
+
 ## 0.7.0 — unreleased
 
 Moves migration and the runtime role onto `@wtfalch/db` 0.5.2. 0.6.0 was never
