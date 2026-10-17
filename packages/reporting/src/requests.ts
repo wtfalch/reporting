@@ -23,11 +23,24 @@ export class RequestCounter {
 
   constructor(private readonly o: RequestCounterOptions) {}
 
+  /** Counts one response. */
   record(status: number): void {
+    this.add(status >= 500 ? 1 : 0, 1);
+  }
+
+  /**
+   * Counts one 5xx for a request already counted by `record`, such as a page
+   * that threw after the proxy let it through. Adds no request.
+   */
+  recordError(): void {
+    this.add(1, 0);
+  }
+
+  private add(errors: number, requests: number): void {
     const minute = Math.floor(this.o.now().getTime() / 60_000) * 60_000;
     const b = this.buckets.get(minute) ?? { requests: 0, errors: 0 };
-    b.requests += 1;
-    if (status >= 500) b.errors += 1;
+    b.requests += requests;
+    b.errors += errors;
     this.buckets.set(minute, b);
     if (!this.timer) {
       this.timer = setTimeout(() => {

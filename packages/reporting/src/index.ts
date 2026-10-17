@@ -120,7 +120,10 @@ export function createReporting(options: ReportingOptions): Reporting {
       await writer.flush(opts);
       await requests.flush();
     },
-    requests: { record: (status) => requests.record(status) },
+    requests: {
+      record: (status) => requests.record(status),
+      recordError: () => requests.recordError(),
+    },
     events: { page: (opts) => eventsPage(options.db, opts) },
     settings: {
       get: () => getSettings(options.db),

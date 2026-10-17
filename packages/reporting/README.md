@@ -232,6 +232,33 @@ wrong token, 503 when the variable is unset. It answers `from` and `to` (ISO,
 per color and the per-day average of the 7 days before `from`. Counts only; no
 event content. Rows of `reporting_requests` are not pruned.
 
+### Count every request (0.9.0)
+
+`withRequestCount` counts one route handler. To count every request with no
+change per route, add one line to `proxy.ts` and one to `instrumentation.ts`:
+
+```ts
+// src/proxy.ts: wrap the proxy function you already export
+import { countRequests } from '@wtfalch/reporting/next';
+export const proxy = countRequests(reporting, async (request) => { /* as before */ });
+
+// src/instrumentation.ts: pass the handler you already export (Sentry's, say) as the second argument
+import { countRequestErrors } from '@wtfalch/reporting/next';
+export const onRequestError = countRequestErrors(reporting, Sentry.captureRequestError);
+```
+
+The proxy counts each request it sees with the status it answers with (a
+redirect or a 403 is a request; its own throw is a 500). A request it passes
+through is counted as a request there, and a page, route handler or Server
+Action that then throws reaches `onRequestError`, which adds the 5xx. A route
+handler that returns a 500 without throwing is not seen; use `withRequestCount`
+there. `/api/health` and `/api/reporting/release-health` are not counted
+(`skipPaths` replaces that list). Do not wrap a route in `withRequestCount`
+when the proxy matcher covers it: it would be counted twice. In Next 16
+`proxy.ts` runs on the Node runtime only, which is where the in-memory counter
+and its Postgres flush work; on the Edge runtime both functions count nothing.
+A counting failure is logged and never fails the request.
+
 ## Shutdown
 
 ```ts

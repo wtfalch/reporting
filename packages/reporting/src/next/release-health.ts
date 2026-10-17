@@ -136,7 +136,7 @@ function isNextControlFlow(error: unknown): boolean {
  * error, so they cannot push a release toward rollback.
  */
 export function withRequestCount<A extends unknown[]>(
-  reporting: Pick<Reporting, 'requests'>,
+  reporting: { requests: Pick<Reporting['requests'], 'record'> },
   handler: (...args: A) => Promise<Response> | Response,
 ): (...args: A) => Promise<Response> {
   return async (...args) => {
