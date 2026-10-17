@@ -205,7 +205,7 @@ export interface Reporting {
   readonly log: Logger;
   readonly analytics: Analytics;
   /** Counts one response for the release-health read; `flush` writes the counts. Never throws. */
-  readonly requests: { record(status: number): void };
+  readonly requests: { record(status: number): void; recordError(): void };
   stats(): Stats;
 }
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.0
+
+Count every request per color, with no change per route.
+
+- `countRequests(reporting, proxyFn, { skipPaths? })` from `/next` wraps the
+  app's `proxy.ts` function and counts each request with the status the proxy
+  answers with (a throw is a 500 and goes on).
+- `countRequestErrors(reporting, next?, { skipPaths? })` is `onRequestError` for
+  `instrumentation.ts`: it adds the 5xx for a page, route handler or Server
+  Action that threw, then runs `next` (Sentry's handler, say).
+- `/api/health` and `/api/reporting/release-health` are not counted, so probes
+  no longer dominate the totals. Nothing is counted on the Edge runtime.
+- Do not wrap a route in `withRequestCount` where the proxy matcher covers it:
+  that counts it twice.
+- `reporting.requests` gains `recordError()` (one 5xx, no request). A host that
+  implements the `Reporting` type needs it.
+
 ## 0.8.1
 
 0.8.0 as released. The 0.8.0 tag never published: a timing test in

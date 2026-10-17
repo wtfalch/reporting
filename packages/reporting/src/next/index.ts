@@ -13,6 +13,12 @@ export {
   withRequestCount,
   type ReleaseHealthOptions,
 } from './release-health.js';
+export {
+  countRequestErrors,
+  countRequests,
+  DEFAULT_UNCOUNTED_PATHS,
+  type CountOptions,
+} from './count.js';
 export { edgeErrorHandler, type EdgeCaptureOptions, type EdgeErrorReport } from './edge-errors.js';
 
 /**
