@@ -77,6 +77,19 @@ describe('count every request', () => {
     expect(await rows(site)).toEqual([{ color: '', release: '', requests: 1, errors: 1 }]);
   });
 
+  it('counts a throwing proxy once: Next also reports it to onRequestError as routeType proxy', async () => {
+    const { reporting, site } = fresh();
+    const proxy = countRequests(reporting, () => {
+      throw new Error('gate down');
+    });
+    const onError = countRequestErrors(reporting);
+    const [error, request, context] = errArgs('/x');
+    await expect(proxy(req('/x'))).rejects.toThrow('gate down');
+    await onError(error, request, { ...context, routeType: 'proxy' });
+    await reporting.flush();
+    expect(await rows(site)).toEqual([{ color: '', release: '', requests: 1, errors: 1 }]);
+  });
+
   it('does not count the health probe or the release-health read', async () => {
     const { reporting, site } = fresh();
     const proxy = countRequests(reporting, () => ({ status: 200 }));
