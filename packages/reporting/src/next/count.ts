@@ -111,6 +111,8 @@ export function countRequestErrors(
   const skip = options.skipPaths ?? DEFAULT_UNCOUNTED_PATHS;
   return (...args) => {
     safely(reporting, 'request error count', () => {
+      // A throw in the proxy is already counted by `countRequests` as a 500; Next also reports it here.
+      if (args[2].routeType === 'proxy') return;
       if (isEdge() || isSkipped(pathnameOf(args[1].path), skip)) return;
       reporting.requests.recordError();
     });
