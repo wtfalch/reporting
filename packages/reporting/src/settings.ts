@@ -92,7 +92,14 @@ export async function setSettings(
 export const TENANT_RETENTION_KEYS = ['events.retention_days'] as const;
 export type TenantRetentionKey = (typeof TENANT_RETENTION_KEYS)[number];
 
-/** Only the keys this tenant has overridden; a key absent here means "use the site-wide default". */
+/**
+ * Only the keys this tenant has overridden; a key absent here means "use
+ * the site-wide default". Filtered against `TENANT_RETENTION_KEYS`, not
+ * just cast: a tenant row with a legacy `analytics.retention_days` key
+ * (reporting#71 removed that key from `TenantRetentionKey`) would
+ * otherwise come back as an extra property the return type says cannot
+ * exist.
+ */
 export async function getTenantRetention(
   db: Db,
   tenantId: string,
@@ -103,6 +110,7 @@ export async function getTenantRetention(
     .where(eq(reportingTenantSettings.tenantId, tenantId));
   const out: Partial<Record<TenantRetentionKey, number>> = {};
   for (const row of rows) {
+    if (!(TENANT_RETENTION_KEYS as readonly string[]).includes(row.key)) continue;
     if (typeof row.value === 'number' && Number.isInteger(row.value)) {
       out[row.key as TenantRetentionKey] = row.value;
     }

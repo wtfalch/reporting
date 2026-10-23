@@ -540,6 +540,28 @@ describe('the writer against the table', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.value).toBeNull();
   });
+
+  it('tenantSettings.get drops a legacy analytics.retention_days row rather than leaking it', async () => {
+    await t.exec('delete from reporting_tenant_settings');
+    const r = createReporting({
+      db: t.db,
+      log: memoryLog(),
+      site: 'test',
+      mode: 'test',
+      defer: () => {},
+    });
+    const by = { class: 'human' as const, id: 'op1' };
+    const tenantA = '55555555-5555-4555-8555-555555555555';
+    // A row from before reporting#71 removed analytics.retention_days from
+    // TenantRetentionKey -- the column's own check constraint still allows
+    // it (0002_analytics.sql widened it to `events|analytics`), so a row
+    // like this can still exist in a database migrated that far back.
+    await t.exec(
+      `insert into reporting_tenant_settings (tenant_id, key, value) values ('${tenantA}', 'analytics.retention_days', to_jsonb(60))`,
+    );
+    await r.tenantSettings.set(tenantA, 'events.retention_days', 90, by);
+    expect(await r.tenantSettings.get(tenantA)).toEqual({ 'events.retention_days': 90 });
+  });
 });
 
 describe('0005_analytics_session_index.sql', () => {
