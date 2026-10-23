@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.10.0
+
+Analytics moved to its own repo, `@wtfalch/analytics` (issue #71). William,
+2026-10-11: "reporting will be for systems reporting".
+
+Breaking:
+
+- `src/analytics` (the collector, the reader, the rollups, the beacon's
+  write path), the analytics parts of `src/browser`, `src/react` and
+  `src/next`, and the analytics settings
+  (`analytics.retention_days`/`.consent`/`.identify_signed_in`) are gone.
+  `reporting.analytics`, `TrackInput`, `Analytics`, `collectHandler`,
+  `trackContext`, `rollupAnalytics`/`rollupAnalyticsWeekly`/`pruneAnalytics`,
+  `analyticsSeries`/`analyticsWeekly`/`analyticsRecent`/`hideSmallGroups`,
+  `ReportingOptions.normalisePath` and every `./react` export
+  (`ReportingProvider`, `useTrack`, `ConsentControl`) are removed; the
+  `./react` subpath itself is gone from `exports`. `createBeacon` (`./browser`)
+  keeps only error capture (`captureError`, `window.onerror`,
+  `unhandledrejection`) and drops `track`/`pageView`/`accept`/`decline`/
+  `answer`/`visitorId`/the `collector`/`consent` options and the `_rp`
+  cookie. A host on an earlier version pins exact and moves to
+  `@wtfalch/analytics` for all of the above before taking this release.
+- `reporting.tenantSettings` no longer has an `analytics.retention_days`
+  key; `TenantRetentionKey` is `'events.retention_days'` only.
+- Migrations `0002_analytics.sql` and `0005_analytics_session_index.sql`
+  stay (a migration only adds), so the `reporting_analytics*` tables and
+  their four functions (`reporting_rollup_day`, `reporting_rollup_week`,
+  `reporting_prune_analytics`, `reporting_erase_person`) still exist in a
+  database that applied them, holding whatever this package wrote before
+  0.10.0. This package's code no longer calls them: a host may drop their
+  grants from its own `ensureRuntimeRole`/`assertRuntimeRole` calls (see the
+  README). A later migration drops the tables once that data has moved to
+  `@wtfalch/analytics`'s own store -- not yet, since nothing has moved it.
+
 ## 0.9.0
 
 Count every request per color, with no change per route.

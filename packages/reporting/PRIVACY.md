@@ -46,28 +46,30 @@ id. Kept indefinitely; a host may erase `updated_by` on request.
 Nothing here decides. The host gates its pages; the package's readers return
 rows as stored.
 
-## Analytics (0.2.0)
+## Analytics moved
 
-**Raw rows** (`reporting_analytics`), kept for `analytics.retention_days`
-(default 90, bounded 7 to 400, never past what the rollups still need): when,
-which site, a route pattern (identifiers replaced by placeholders before
-storage), an event name, the referrer's host, a device class, a country code,
-flat props under 4 KB without personal keys, and three ids: the first-party
-cookie's visitor id when the person consented, a per-tab session id, and the
-signed-in person's issuer id set server-side from the session
-(`analytics.identify_signed_in`, default on). Never an ip address, a user
-agent, an email, a name or a query string.
+This package stored analytics (raw rows and rollups, below) from 0.2.0
+through 0.9.0. It moved to its own repo and package,
+[`@wtfalch/analytics`](https://github.com/wtfalch/analytics) -- see that
+package's own PRIVACY.md for what it stores now. This package no longer
+writes, reads or erases any of it.
 
-**Rollups** (`reporting_analytics_daily`, `reporting_analytics_weekly`),
-kept indefinitely: counts per day or week, site, organisation, event name,
-route, device, country and referrer host. No identifier in any column;
-buckets under five distinct visitors render as `(few)` to a customer
-organisation.
+**Still in the database, not yet dropped:** a host that applied migrations
+`0002_analytics.sql` and `0005_analytics_session_index.sql` before 0.10.0
+still has the tables below, holding whatever this package wrote before the
+move, until a later migration drops them once that data has moved to
+`@wtfalch/analytics`'s own store.
 
-**Erasure**: `reporting_erase_person` deletes a person's raw rows; the rollups
-have nothing about them to erase. **Consent**: cookieless by default; the
-cookie `_rp` (one year, SameSite=Lax, Secure) appears only after the person
-accepts, or under the `always` mode a host chooses knowingly.
+- **Raw rows** (`reporting_analytics`): when, which site, a route pattern
+  (identifiers replaced by placeholders before storage), an event name, the
+  referrer's host, a device class, a country code, flat props under 4 KB
+  without personal keys, and three ids: the first-party cookie's visitor id
+  when the person consented, a per-tab session id, and the signed-in
+  person's issuer id set server-side from the session. Never an ip address,
+  a user agent, an email, a name or a query string.
+- **Rollups** (`reporting_analytics_daily`, `reporting_analytics_weekly`):
+  counts per day or week, site, organisation, event name, route, device,
+  country and referrer host. No identifier in any column.
 
 ## `reporting_errors`
 

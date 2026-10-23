@@ -1,25 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { ANALYTICS_LIMITS } from '../analytics/schema.js';
 import { Buckets } from '../ingest-limit.js';
 import { SITE_PATTERN } from '../schema.js';
 import type { Reporting } from '../types.js';
 
+/** The same body-size cap the beacon's own ingest route used to share with this one (reporting#71 moved that route to `@wtfalch/analytics`). */
+const BODY_BYTES_LIMIT = 16384;
+
 /**
  * The public ingest route for browser-reported errors
- * (docs/plans/errors.md, "Surface"): modelled exactly on the analytics
- * collector (`../analytics/collector.js`) — always 204, the same origin
- * allowance, the same body-size cap — because that ingest problem is
- * already solved there and a second set of limits would be a second set to
- * get wrong.
+ * (docs/plans/errors.md, "Surface"): always 204, with an origin allowance
+ * and a body-size cap, because an unauthenticated route that writes rows
+ * needs both.
  *
- * Two things differ from the analytics collector, both because a
- * `Reporting` instance is already bound to one site:
- * 1. There is no `sites` map to route a foreign origin's claim to a
- *    different site's table — `origins` below is a flat allow-list, and a
- *    batch claiming any other site is dropped, same-origin or not.
- * 2. A capture goes through `reporting.captureError`, not a direct insert,
- *    so there is no `now`/`db` to take here: capture.ts already has its own.
+ * Because a `Reporting` instance is already bound to one site, `origins`
+ * below is a flat allow-list rather than a map to a different site's
+ * table, and a batch claiming any other site is dropped, same-origin or
+ * not. A capture goes through `reporting.captureError`, not a direct
+ * insert, so there is no `now`/`db` to take here: capture.ts already has
+ * its own.
  */
 
 export interface ClientErrorCollectorOptions {
@@ -28,14 +27,12 @@ export interface ClientErrorCollectorOptions {
   readonly origins?: readonly string[];
   /**
    * The signed-in person, from the host's session, for a same-origin
-   * request only — a foreign origin never reads it (addendum A5's rule,
-   * same as the analytics collector's `getUserId`).
+   * request only — a foreign origin never reads it (addendum A5's rule).
    */
   readonly getUserId?: (request: Request) => Promise<string | null>;
   /**
-   * The host's tenant lookup for that person. Unlike the analytics
-   * collector's `tenantFor`, there is no pathname to hand over: an error
-   * batch names no single route the way a page view does.
+   * The host's tenant lookup for that person. There is no pathname to hand
+   * over: an error batch names no single route the way a page view does.
    */
   readonly tenantFor?: (userId: string) => Promise<string | null>;
   /**
@@ -43,8 +40,8 @@ export interface ClientErrorCollectorOptions {
    * that writes rows needs a ceiling that does not depend on the caller being
    * our own beacon: the browser's 5-distinct/20-total cap is one line of
    * client code away from being ignored, and `reporting_errors` never prunes
-   * an open row. Lower than the analytics default because an error is rarer
-   * than a page view by design; a client hitting this is already broken.
+   * an open row. An error is rarer than a page view by design, so this stays
+   * low; a client hitting this is already broken.
    */
   readonly ratePerMinute?: number;
 }
@@ -53,12 +50,12 @@ export interface ClientErrorCollectorOptions {
 const BATCH_MAX = 10;
 
 /**
- * Not `z.strictObject`, unlike the analytics beacon schema: a client that
- * adds `tenantId`, `userId` or `requestId` here must have that field
- * silently stripped, not the whole batch refused. `handle()` below never
- * reads such a field either way — identity and the request id come only
- * from this request itself (`getUserId`/`tenantFor`, and `cf-ray`/a fresh
- * uuid), never from the body. The browser is not a trusted caller.
+ * Not `z.strictObject`: a client that adds `tenantId`, `userId` or
+ * `requestId` here must have that field silently stripped, not the whole
+ * batch refused. `handle()` below never reads such a field either way —
+ * identity and the request id come only from this request itself
+ * (`getUserId`/`tenantFor`, and `cf-ray`/a fresh uuid), never from the body.
+ * The browser is not a trusted caller.
  */
 const entrySchema = z.object({
   kind: z.string().min(1),
@@ -95,11 +92,6 @@ function requestIdOf(request: Request): string {
   return ray && RAY_PATTERN.test(ray) ? ray : randomUUID();
 }
 
-/**
- * Same shape as the collector's own `originFor` (`../analytics/collector.js`,
- * private there): duplicated rather than exported, per this task's scope —
- * it is ~10 lines and the two callers now diverge (no `sites` map here).
- */
 function originOf(request: Request): { kind: 'same' | 'foreign'; origin: string } | null {
   const origin = request.headers.get('origin');
   const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host');
@@ -146,14 +138,14 @@ export function createClientErrorCollector(options: ClientErrorCollectorOptions)
       return NO_CONTENT();
     }
     const length = Number(request.headers.get('content-length') ?? '0');
-    if (length > ANALYTICS_LIMITS.bodyBytes) return NO_CONTENT();
+    if (length > BODY_BYTES_LIMIT) return NO_CONTENT();
     let text: string;
     try {
       text = await request.text();
     } catch {
       return NO_CONTENT();
     }
-    if (text.length > ANALYTICS_LIMITS.bodyBytes) return NO_CONTENT();
+    if (text.length > BODY_BYTES_LIMIT) return NO_CONTENT();
     let json: unknown;
     try {
       json = JSON.parse(text);

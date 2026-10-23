@@ -11,19 +11,10 @@ import type { Actor, Db, Settings, SettingsChange } from './types.js';
  */
 
 export const RETENTION_BOUNDS = { min: 7, max: 400 } as const;
-export const CONSENT_MODES = ['none', 'consented', 'always'] as const;
 const retention = z.number().int().min(RETENTION_BOUNDS.min).max(RETENTION_BOUNDS.max);
 
 const DEFS: { [K in keyof Settings]: { schema: z.ZodType<Settings[K]>; default: Settings[K] } } = {
   'events.retention_days': { schema: retention, default: 30 },
-  // Ninety, not thirty: behaviour is watched over years through the rollups,
-  // and a dimension they lack is a recompute over this window (D13).
-  'analytics.retention_days': { schema: retention, default: 90 },
-  // Cookieless until the person says otherwise (D15).
-  'analytics.consent': { schema: z.enum(CONSENT_MODES), default: 'consented' },
-  // A signed-in person's rows carry their id, as the product's own record of
-  // serving them; one line to change if advice changes (D15).
-  'analytics.identify_signed_in': { schema: z.boolean(), default: true },
 };
 
 export const DEFAULT_SETTINGS: Settings = Object.freeze(
@@ -95,11 +86,10 @@ export async function setSettings(
  * for one customer's contract without moving the site-wide default (gap
  * issue #11): `reporting_tenant_settings`, keyed by (tenant_id, key), one
  * JSONB value the same shape `getSettings`/`setSettings` already parse.
- * `reporting_prune_events`/`reporting_prune_analytics` (0006_tenant_settings.sql)
- * check this table for the row they are about to prune before falling back
- * to the site-wide setting.
+ * `reporting_prune_events` (0006_tenant_settings.sql) checks this table for
+ * the row it is about to prune before falling back to the site-wide setting.
  */
-export const TENANT_RETENTION_KEYS = ['events.retention_days', 'analytics.retention_days'] as const;
+export const TENANT_RETENTION_KEYS = ['events.retention_days'] as const;
 export type TenantRetentionKey = (typeof TENANT_RETENTION_KEYS)[number];
 
 /** Only the keys this tenant has overridden; a key absent here means "use the site-wide default". */
@@ -124,8 +114,8 @@ export async function getTenantRetention(
  * Sets a tenant's override, or clears it back to the site-wide default when
  * `days` is `null` -- clearing never deletes the row, same "nothing that
  * deletes" convention as `reportingSettings`: it stores the JSON `null`
- * `reporting_prune_events`/`reporting_prune_analytics` already treat as "no
- * override". Throws on an out-of-bounds value: the caller is a form.
+ * `reporting_prune_events` already treats as "no override". Throws on an
+ * out-of-bounds value: the caller is a form.
  */
 export async function setTenantRetention(
   db: Db,

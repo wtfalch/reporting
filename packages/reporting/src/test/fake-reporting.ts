@@ -14,7 +14,6 @@ import type {
   Reporting,
   Settings,
   SettingsChange,
-  TrackInput,
 } from '../types.js';
 
 /**
@@ -25,8 +24,6 @@ import type {
 export interface FakeReporting extends Reporting {
   readonly rows: ReportingEventRow[];
   readonly alerts: AlertFinding[];
-  /** What `analytics.track` received. */
-  readonly tracked: (TrackInput & { site: string })[];
   reset(): void;
 }
 
@@ -45,7 +42,6 @@ export function createFakeReporting(
   const log = opts.log ?? silent;
   const rows: ReportingEventRow[] = [];
   const alerts: AlertFinding[] = [];
-  const tracked: (TrackInput & { site: string })[] = [];
   let settings: Settings = { ...DEFAULT_SETTINGS };
   const tenantRetention = new Map<string, number>();
   let id = 0;
@@ -67,7 +63,6 @@ export function createFakeReporting(
     tables,
     rows,
     alerts,
-    tracked,
     event(input) {
       const v = eventInputSchema.parse(input);
       id += 1;
@@ -153,7 +148,7 @@ export function createFakeReporting(
     tenantSettings: {
       async get(tenantId: string) {
         const out: Partial<Record<TenantRetentionKey, number>> = {};
-        for (const key of ['events.retention_days', 'analytics.retention_days'] as const) {
+        for (const key of ['events.retention_days'] as const) {
           const value = tenantRetention.get(`${tenantId}:${key}`);
           if (value !== undefined) out[key] = value;
         }
@@ -169,20 +164,6 @@ export function createFakeReporting(
           throw new Error(`reporting.tenantSettings: ${key} out of bounds`);
         }
         tenantRetention.set(mapKey, days);
-      },
-    },
-    analytics: {
-      async track(input) {
-        tracked.push({ ...input, site });
-      },
-      async series() {
-        return [];
-      },
-      async weekly() {
-        return [];
-      },
-      async recent() {
-        return [];
       },
     },
     stats: () => ({ queued: 0, dropped: 0, invalid: 0, flushed: rows.length }),
