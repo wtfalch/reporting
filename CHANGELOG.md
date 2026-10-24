@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0
+## 1.0.0
 
 Analytics moved to its own repo, `@wtfalch/analytics` (issue #71). William,
 2026-10-11: "reporting will be for systems reporting".
@@ -29,7 +29,7 @@ Breaking:
   their four functions (`reporting_rollup_day`, `reporting_rollup_week`,
   `reporting_prune_analytics`, `reporting_erase_person`) still exist in a
   database that applied them, holding whatever this package wrote before
-  0.10.0. This package's code no longer calls them: a host may drop their
+  1.0.0. This package's code no longer calls them: a host may drop their
   grants from its own `ensureRuntimeRole`/`assertRuntimeRole` calls (see the
   README). A later migration drops the tables once that data has moved to
   `@wtfalch/analytics`'s own store -- not yet, since nothing has moved it.

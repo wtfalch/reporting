@@ -55,7 +55,7 @@ package's own PRIVACY.md for what it stores now. This package no longer
 writes, reads or erases any of it.
 
 **Still in the database, not yet dropped:** a host that applied migrations
-`0002_analytics.sql` and `0005_analytics_session_index.sql` before 0.10.0
+`0002_analytics.sql` and `0005_analytics_session_index.sql` before 1.0.0
 still has the tables below, holding whatever this package wrote before the
 move, until a later migration drops them once that data has moved to
 `@wtfalch/analytics`'s own store.

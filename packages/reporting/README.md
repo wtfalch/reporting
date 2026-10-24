@@ -81,10 +81,10 @@ await ensureRuntimeRole({
 });
 ```
 
-A database migrated before 0.10.0 also carries the analytics tables and
+A database migrated before 1.0.0 also carries the analytics tables and
 their four functions (`reporting_rollup_day`, `reporting_rollup_week`,
 `reporting_prune_analytics`, `reporting_erase_person`); this package's code
-no longer calls them, so a host moving to 0.10.0 may drop their grants from
+no longer calls them, so a host moving to 1.0.0 may drop their grants from
 its own `ensureRuntimeRole`/`assertRuntimeRole` calls along with this one's.
 
 Run `ensureRuntimeRole` after every migration run: the lists apply to the
@@ -277,7 +277,7 @@ registerShutdownFlush(reporting);   // one bounded flush on SIGTERM
 Best effort. The queue is per process and bounded at 1,000; the logger has
 every row regardless.
 
-## Analytics moved (0.2.0 to 0.9.0, moved in 0.10.0)
+## Analytics moved (0.2.0 to 0.9.0, moved in 1.0.0)
 
 This package carried analytics -- the beacon, the collector, the rollups and
 `reporting.analytics.track` -- from 0.2.0 through 0.9.0. William, 2026-10-11:
@@ -291,7 +291,7 @@ Migrations `0002_analytics.sql` and `0005_analytics_session_index.sql` stay
 in this package (a migration only adds), so a host that already applied them
 keeps the `reporting_analytics`, `reporting_analytics_daily` and
 `reporting_analytics_weekly` tables and the four functions that wrote them,
-holding whatever rows this package wrote before 0.10.0. A later migration
+holding whatever rows this package wrote before 1.0.0. A later migration
 drops them once that data has moved to `@wtfalch/analytics`'s own store.
 
 ## Tests
