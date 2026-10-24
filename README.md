@@ -7,7 +7,8 @@
 > in ADR 0001 is superseded.
 
 The estate's systems reporting: an operational event log and the
-housekeeping tick behind it, published as `@wtfalch/reporting`. It sits
+housekeeping tick behind it, kept in the private `@wtfalch/reporting-core`
+and read through the `@wtfalch/reporting` SDK. It sits
 beside `auth` (who is this), `authz` (what may they do), `audit` (what did
 they do) and `design` (what does it look like), and answers a fifth
 question: what did the system do. Analytics (how people use the product)
