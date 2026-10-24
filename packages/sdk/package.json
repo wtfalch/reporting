@@ -1,10 +1,9 @@
 {
-  "name": "@wtfalch/reporting-sdk",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@wtfalch/reporting",
+  "version": "2.0.0",
   "type": "module",
   "license": "MIT",
-  "description": "Public client SDK and API types for the shared reporting collector service (issue #42). Unpublished scaffold: not wired to real ingest/read traffic yet.",
+  "description": "Client SDK for the reporting backend a company runs for itself: send errors from a server, read them back.",
   "repository": {
     "type": "git",
     "url": "https://github.com/wtfalch/reporting",
@@ -33,6 +32,9 @@
     }
   },
   "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.0.0"
   },

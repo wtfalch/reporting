@@ -14,7 +14,7 @@ question: what did the system do. Analytics (how people use the product)
 moved to its own repo, [`wtfalch/analytics`](https://github.com/wtfalch/analytics)
 — see issue #71.
 
-The package is in `packages/reporting`; its README says what it holds and how
+The library is in `packages/reporting` (`@wtfalch/reporting-core`, private); its README says what it holds and how
 an app binds it, and its `PRIVACY.md` says what is stored and for how long.
 The design it implements was originally `docs/plans/reporting.md` and
 `docs/plans/reporting/core.md` in `wtfalch/app-template`, which was archived
@@ -33,7 +33,7 @@ two-connection cases run too. Each test file gets a uniquely named schema,
 dropped afterwards; `public` is never touched, and the runtime-role test
 creates and drops its own role.
 
-Publishing is a tag. Bump the version in `packages/reporting/package.json`,
+Publishing is a tag. Bump the version in `packages/sdk/package.json`,
 merge it, then push `v<version>`: `.github/workflows/release.yml` runs the
 same gates CI runs, refuses a tag that disagrees with `package.json`, and
 publishes with provenance through npm trusted publishing (OIDC), so the
@@ -41,12 +41,12 @@ repository holds no npm token. The first version, 0.1.0, went out from a
 laptop because a package has to exist before npm can trust a publisher for
 it.
 
-## The shared collector (issue #42)
+## Packages
 
-`docs/adr/0001-shared-collector-service-shape.md` and `docs/plans/collector.md`
-track moving to one shared, org-scoped collector service. `packages/sdk`
-(`@wtfalch/reporting-sdk`) is the first piece of slice 2's scaffold for that
-shape -- package-template's `service`-shape toy, renamed to this repo's
-token, private and unpublished, `pnpm check`-clean. `packages/service`
-follows in a stacked PR. `packages/reporting` keeps publishing as
-`@wtfalch/reporting` unchanged; no app has moved off it yet.
+- `packages/sdk` is `@wtfalch/reporting` 2.0.0, the only package that
+  publishes. It is a scaffold until the SDK tasks in the plan land.
+- `packages/reporting` is `@wtfalch/reporting-core`, private and never
+  published. The library 1.0.0 and 1.1.0 shipped under the name
+  `@wtfalch/reporting`; this package keeps that code for the backend.
+
+`docs/adr/0002-one-backend-and-app-per-company.md` has the decision.

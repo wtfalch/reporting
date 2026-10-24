@@ -1,25 +1,20 @@
-# @wtfalch/reporting-sdk
+# @wtfalch/reporting
 
-Scaffold client SDK and API types for the shared reporting collector service
-(issue #42, `docs/plans/collector.md` slice 2). This is the toy domain
-package-template's `service` shape ships, renamed to this repo's token and
-wired into the root gate — it is not yet the real collector. The real
-ingest/read surface, schema and forced row-level security land in slices
-3-5 of the plan.
+Client SDK and API types for the reporting backend a company runs for itself
+(`docs/adr/0002-one-backend-and-app-per-company.md`). This is still the
+scaffold client; the real send and read calls land in later tasks.
 
 Requires Node 22+ or a browser with Fetch support. The client has no runtime
 package dependencies.
 
 ## Status
 
-Published: no. Private scaffold package (`0.0.0`), not installable from npm.
-Once the real collector cuts over (`docs/adr/0001-shared-collector-service-shape.md`'s
-"Consequence" section), this package's content moves into the existing
-`packages/reporting`, which keeps publishing as `@wtfalch/reporting`
-unchanged; this package does not publish under that name in the meantime.
+Version 2.0.0. The name `@wtfalch/reporting` was the library in 1.0.0 and
+1.1.0; the library is now the private `@wtfalch/reporting-core`, and this
+package is the client.
 
 ```ts
-import { createReportingClient } from '@wtfalch/reporting-sdk';
+import { createReportingClient } from '@wtfalch/reporting';
 
 const reportings = createReportingClient({
   baseUrl: serviceOrigin,
@@ -36,6 +31,6 @@ and a typed `code` (see `ReportingError`); the SDK never throws a bare `Error`
 for a service failure.
 
 The root export provides the client and public request/response types.
-`@wtfalch/reporting-sdk/client` is also supported. There are no server,
+`@wtfalch/reporting/client` is also supported. There are no server,
 database, migration or authorization exports. The service implementation is
 a private package.
