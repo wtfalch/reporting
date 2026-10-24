@@ -11,6 +11,7 @@ export {
   withRequestCount,
   type ReleaseHealthOptions,
 } from './release-health.js';
+export { releaseSeriesHandler, type ReleaseSeriesOptions } from './release-series.js';
 export {
   countRequestErrors,
   countRequests,

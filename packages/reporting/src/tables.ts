@@ -180,7 +180,7 @@ export type TenantErrorRow = Omit<
   readonly resolvedAt: null;
 };
 
-/** Request and 5xx counts per minute, color and release; mirrored from migrations/0010_requests.sql. */
+/** Request, 5xx, slow, duration and sign-in counts per minute, color and release; mirrored from migrations/0010_requests.sql and 0011_request_timings.sql. */
 export const reportingRequests = pgTable(
   'reporting_requests',
   {
@@ -190,6 +190,10 @@ export const reportingRequests = pgTable(
     release: text('release').notNull().default(''),
     requests: bigint('requests', { mode: 'number' }).notNull().default(0),
     errors: bigint('errors', { mode: 'number' }).notNull().default(0),
+    durationMsSum: bigint('duration_ms_sum', { mode: 'number' }).notNull().default(0),
+    slow: bigint('slow', { mode: 'number' }).notNull().default(0),
+    signIns: bigint('sign_ins', { mode: 'number' }).notNull().default(0),
+    signInFailures: bigint('sign_in_failures', { mode: 'number' }).notNull().default(0),
   },
   (t) => [
     primaryKey({

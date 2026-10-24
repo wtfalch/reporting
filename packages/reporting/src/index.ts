@@ -12,6 +12,7 @@ export * from './schema.js';
 export * from './tables.js';
 export * from './types.js';
 export { alertKind, projectDetail } from './alerts.js';
+export { countSignIn, SLOW_REQUEST_MS } from './requests.js';
 export { DEFAULT_SETTINGS, RETENTION_BOUNDS } from './settings.js';
 // The error-group list, for a host's triage page: filters, keyset paging and
 // `search` over message and stack. No permission is applied; the host gates.
@@ -103,7 +104,7 @@ export function createReporting(options: ReportingOptions): Reporting {
       await requests.flush();
     },
     requests: {
-      record: (status) => requests.record(status),
+      record: (status, durationMs) => requests.record(status, durationMs),
       recordError: () => requests.recordError(),
     },
     events: { page: (opts) => eventsPage(options.db, opts) },

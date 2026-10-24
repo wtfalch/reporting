@@ -8,7 +8,7 @@ import type { Db, Reporting } from '../types.js';
 
 const DAY_MS = 86_400_000;
 const BASELINE_DAYS = 7;
-const MAX_RANGE_MS = 8 * DAY_MS;
+export const MAX_RANGE_MS = 8 * DAY_MS;
 
 export interface ReleaseHealthOptions {
   readonly db: Db;
@@ -17,15 +17,15 @@ export interface ReleaseHealthOptions {
   readonly token?: () => string | undefined;
 }
 
-const iso = z.iso.datetime({ offset: true });
+export const iso = z.iso.datetime({ offset: true });
 
-function tokenMatches(provided: string, expected: string): boolean {
+export function tokenMatches(provided: string, expected: string): boolean {
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function json(body: unknown, status: number): Response {
+export function json(body: unknown, status: number): Response {
   return Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
 }
 
@@ -140,12 +140,16 @@ export function withRequestCount<A extends unknown[]>(
   handler: (...args: A) => Promise<Response> | Response,
 ): (...args: A) => Promise<Response> {
   return async (...args) => {
+    const started = performance.now();
     try {
       const response = await handler(...args);
-      reporting.requests.record(response.status);
+      reporting.requests.record(response.status, performance.now() - started);
       return response;
     } catch (error) {
-      reporting.requests.record(isNextControlFlow(error) ? CONTROL_FLOW_STATUS : 500);
+      reporting.requests.record(
+        isNextControlFlow(error) ? CONTROL_FLOW_STATUS : 500,
+        performance.now() - started,
+      );
       throw error;
     }
   };

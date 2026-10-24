@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.1.0
+
+Answer times, slow answers and sign-ins per color, and a read that draws them
+as a series. Migration `0011`; apply it. It only adds columns with a default of
+0, so it is safe on live rows and an older app keeps writing without them.
+
+- `reporting_requests` gains `duration_ms_sum`, `slow`, `sign_ins` and
+  `sign_in_failures`. `reporting.requests.record(status, durationMs?)` takes
+  the time; a request over 1000 ms (`SLOW_REQUEST_MS`) counts as slow. A
+  request recorded with no time adds to `requests` and nothing else.
+  `countRequests` times the proxy function; `withRequestCount` times the
+  whole route handler.
+- `countSignIn(ok)` from the root entry counts one sign-in or one failed
+  sign-in in the current minute and color. It adds no request. It does nothing
+  until `createReporting` has run, and adds to the instance created last.
+- `releaseSeriesHandler` from `/next`: `GET /api/reporting/release-series?from&to&bucket`.
+  Same bearer token (`REPORTING_HEALTH_TOKEN`) and 8-day limit as the
+  release-health read; `bucket` is 10, 20 (default) or 60 minutes, anything
+  else is 400. Returns `{ bucketMinutes, buckets: [{ start, colors: { blue, green } }] }`
+  with `requests`, `errors`, `slow`, `durationMsSum`, `signIns` and
+  `signInFailures` per color. Buckets start at `from`; every bucket in the range
+  is present, with zeros where nothing was counted.
+- `/api/reporting/release-series` joins the paths `countRequests` and
+  `countRequestErrors` do not count by default. A host that passes `skipPaths`
+  adds it itself.
+- `Reporting['requests'].record` gains an optional second argument; a host
+  that implements the type still compiles.
+
 ## 1.0.0
 
 Analytics moved to its own repo, `@wtfalch/analytics` (issue #71). William,
