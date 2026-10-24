@@ -1,10 +1,12 @@
 # reporting
 
-The estate's operational event log, its housekeeping tick and, from 0.2, its
-analytics, published as `@wtfalch/reporting`. It sits beside `auth` (who is
-this), `authz` (what may they do), `audit` (what did they do) and `design`
-(what does it look like), and answers a fifth question: what did the system
-do, and how is the product used.
+The estate's systems reporting: an operational event log and the
+housekeeping tick behind it, published as `@wtfalch/reporting`. It sits
+beside `auth` (who is this), `authz` (what may they do), `audit` (what did
+they do) and `design` (what does it look like), and answers a fifth
+question: what did the system do. Analytics (how people use the product)
+moved to its own repo, [`wtfalch/analytics`](https://github.com/wtfalch/analytics)
+— see issue #71.
 
 The package is in `packages/reporting`; its README says what it holds and how
 an app binds it, and its `PRIVACY.md` says what is stored and for how long.

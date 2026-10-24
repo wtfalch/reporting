@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createBeacon } from './index.js';
 
-/** A window small enough to hold in one hand, extended from beacon.test.ts's
- * with a `fire` that can pass an event payload — needed here since `error`
- * and `unhandledrejection` listeners read `event.message`/`.error`/`.reason`. */
+/** A window small enough to hold in one hand, with a `fire` that can pass an
+ * event payload — needed here since `error` and `unhandledrejection`
+ * listeners read `event.message`/`.error`/`.reason`. */
 function fakeWindow(path = '/start') {
   const listeners = new Map<string, Set<(event?: unknown) => void>>();
   const on = (target: string) => (type: string, fn: (event?: unknown) => void) => {
@@ -55,7 +55,7 @@ function capture() {
 describe('the beacon: errors', () => {
   it('does not listen unless both errors and errorCollector are set', () => {
     const { win, size } = fakeWindow();
-    const b = createBeacon({ collector: '/c', site: 'app', window: win, send: () => {} });
+    const b = createBeacon({ site: 'app', window: win, send: () => {} });
     expect(size('win:error')).toBe(0);
     expect(size('win:unhandledrejection')).toBe(0);
     b.destroy();
@@ -65,7 +65,6 @@ describe('the beacon: errors', () => {
     const { win, fire } = fakeWindow();
     const { sent, send } = capture();
     const b = createBeacon({
-      collector: '/c',
       site: 'app',
       errors: true,
       errorCollector: '/api/errors',
@@ -92,7 +91,6 @@ describe('the beacon: errors', () => {
     const { win } = fakeWindow();
     const { sent, send } = capture();
     const b = createBeacon({
-      collector: '/c',
       site: 'app',
       errors: true,
       errorCollector: '/api/errors',
@@ -120,7 +118,6 @@ describe('the beacon: errors', () => {
     const { win } = fakeWindow();
     const { sent, send } = capture();
     const b = createBeacon({
-      collector: '/c',
       site: 'app',
       errors: true,
       errorCollector: '/api/errors',
@@ -140,7 +137,7 @@ describe('the beacon: errors', () => {
   it('captureError() is a no-op when errors are off, and never throws', () => {
     const { win } = fakeWindow();
     const { sent, send } = capture();
-    const b = createBeacon({ collector: '/c', site: 'app', window: win, send });
+    const b = createBeacon({ site: 'app', window: win, send });
     expect(() => b.captureError(new Error('nobody is listening'))).not.toThrow();
     b.destroy();
     expect(sent.find((s) => s.url === '/api/errors')).toBeUndefined();
@@ -150,7 +147,6 @@ describe('the beacon: errors', () => {
     const { win, fire } = fakeWindow();
     const { sent, send } = capture();
     const b = createBeacon({
-      collector: '/c',
       site: 'app',
       errors: true,
       errorCollector: '/api/errors',
@@ -167,7 +163,6 @@ describe('the beacon: errors', () => {
     const { win, fire } = fakeWindow();
     const { sent, send } = capture();
     const b = createBeacon({
-      collector: '/c',
       site: 'app',
       errors: true,
       errorCollector: '/api/errors',
@@ -193,7 +188,6 @@ describe('the beacon: errors', () => {
   it('destroy() removes both new listeners', () => {
     const { win, size } = fakeWindow();
     const b = createBeacon({
-      collector: '/c',
       site: 'app',
       errors: true,
       errorCollector: '/api/errors',

@@ -1,12 +1,4 @@
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import type {
-  RecentEvent,
-  RecentOptions,
-  SeriesOptions,
-  SeriesPoint,
-  WeeklyPoint,
-} from './analytics/reader.js';
-import type { Device } from './analytics/schema.js';
 import type { Actor, ErrorRuntime, ErrorState, EventInput, FlatData, Level } from './schema.js';
 import type { TenantRetentionKey } from './settings.js';
 import type { ReportingErrorRow, ReportingEventRow, TenantErrorRow, tables } from './tables.js';
@@ -43,12 +35,8 @@ export interface SettingsChange {
   readonly changed: readonly string[];
 }
 
-export type ConsentMode = 'none' | 'consented' | 'always';
 export interface Settings {
   readonly 'events.retention_days': number;
-  readonly 'analytics.retention_days': number;
-  readonly 'analytics.consent': ConsentMode;
-  readonly 'analytics.identify_signed_in': boolean;
 }
 
 export interface ReportingOptions {
@@ -78,8 +66,6 @@ export interface ReportingOptions {
   onAlert?: (finding: AlertFinding) => void;
   /** Bound by the host to its audit ledger; called after a settings change commits. */
   audit?: (change: SettingsChange) => Promise<void>;
-  /** The host's route normalisation for analytics paths (addendum A7); the package's default otherwise. */
-  normalisePath?: (pathname: string) => string;
   /**
    * Extra environment variable names to redact from a captured error's
    * `message` and `stack`, beyond the estate's own `KEYSTORE_KEK`/
@@ -153,33 +139,6 @@ export interface Stats {
   readonly flushed: number;
 }
 
-/** A server-side analytics event: the server's truth about something a person did, with identity from the `Access`, never a claim. */
-export interface TrackInput {
-  readonly name: string;
-  readonly props?: Record<string, string | number | boolean | null>;
-  readonly tenantId?: string | null;
-  /** The signed-in person's id, from the host's resolved principal. */
-  readonly userId?: string | null;
-  /** The pathname the event belongs to; normalised before storage. Default `/`. */
-  readonly path?: string;
-  readonly device?: Device;
-  readonly country?: string | null;
-  /** The consent cookie's value, when the host passes it through. */
-  readonly visitorId?: string | null;
-  readonly sessionId?: string | null;
-  readonly occurredAt?: Date;
-}
-
-export interface Analytics {
-  /** Never throws in production: a failed insert is a log line. */
-  track(input: TrackInput): Promise<void>;
-  series(opts: SeriesOptions): Promise<readonly SeriesPoint[]>;
-  weekly(opts: { site: string; tenantId?: string; from: string; to: string }): Promise<
-    readonly WeeklyPoint[]
-  >;
-  recent(opts: RecentOptions): Promise<readonly RecentEvent[]>;
-}
-
 export interface Reporting {
   /** Never throws in production; see writer.ts. */
   event(input: EventInput): void;
@@ -203,7 +162,6 @@ export interface Reporting {
   readonly tables: typeof tables;
   readonly site: string;
   readonly log: Logger;
-  readonly analytics: Analytics;
   /**
    * Counts one response for the release reads; `flush` writes the counts. Never throws.
    * `durationMs` (when timed) adds to the duration sum; over 1000 ms counts as slow.

@@ -3,7 +3,6 @@ import { withDrizzle } from '@wtfalch/db/drizzle';
 import { createDatabase } from '@wtfalch/db/postgres';
 import { assertRuntimeRole, ensureRuntimeRole } from '@wtfalch/db/runtime-role';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { pruneAnalyticsBatch } from './analytics/tasks.js';
 import { pruneErrorsBatch, pruneOpenErrorsBatch } from './errors/tasks.js';
 import { createHousekeeping } from './housekeeping/index.js';
 import { pruneBatch } from './housekeeping/tasks.js';
@@ -46,8 +45,7 @@ describe.skipIf(!URL_)('the runtime role', () => {
       ownerUrl: url,
       runtimeUrl,
       schemas: [schema],
-      appendOnly: ['reporting_events', 'reporting_analytics'],
-      readOnly: ['reporting_analytics_daily', 'reporting_analytics_weekly'],
+      appendOnly: ['reporting_events'],
       noDelete: [
         'reporting_tasks',
         'reporting_settings',
@@ -58,10 +56,6 @@ describe.skipIf(!URL_)('the runtime role', () => {
       ],
       grants: [
         fn('reporting_prune_events(interval, integer)'),
-        fn('reporting_rollup_day(date)'),
-        fn('reporting_rollup_week(date)'),
-        fn('reporting_prune_analytics(interval, integer, date)'),
-        fn('reporting_erase_person(text)'),
         fn('reporting_prune_errors(interval, integer)'),
         fn('reporting_prune_open_errors(integer, integer)'),
       ],
@@ -91,8 +85,7 @@ describe.skipIf(!URL_)('the runtime role', () => {
 
   it('holds what the lists say and owns nothing', async () => {
     await assertRuntimeRole(runtime.database, {
-      appendOnly: [`${schema}.reporting_events`, `${schema}.reporting_analytics`],
-      readOnly: [`${schema}.reporting_analytics_daily`, `${schema}.reporting_analytics_weekly`],
+      appendOnly: [`${schema}.reporting_events`],
       noDelete: [
         `${schema}.reporting_tasks`,
         `${schema}.reporting_settings`,
@@ -146,22 +139,6 @@ describe.skipIf(!URL_)('the runtime role', () => {
     expect(rels).toEqual([]);
   });
 
-  it('a temp table named like a real one cannot feed a definer function', async () => {
-    await runtime.database.transaction(async (tx) => {
-      await tx.query(
-        `create temp table reporting_analytics (like "${schema}".reporting_analytics including defaults) on commit drop`,
-      );
-      await tx.query(
-        "insert into reporting_analytics (id, occurred_at, site, name, path, device, user_id) values (1, '2001-01-01 12:00+00', 'forged', 'page.view', '/', 'desktop', 'f1')",
-      );
-      await tx.query("select reporting_rollup_day('2001-01-01'::date)");
-    });
-    const forged = await t.query(
-      "select count(*)::int as n from reporting_analytics_daily where site = 'forged'",
-    );
-    expect(forged[0]?.n).toBe(0);
-  });
-
   it('can insert and read events, cannot update, delete or truncate them', async () => {
     await q(
       `insert into reporting_events (level, kind, site, message) values ('info', 'a.b', 'test', 'm')`,
@@ -198,32 +175,6 @@ describe.skipIf(!URL_)('the runtime role', () => {
 
   it('the drizzle handle over the runtime role behaves the same', async () => {
     await expect(orm.execute('delete from reporting_events' as never)).rejects.toThrow();
-  });
-
-  it('analytics: inserts and reads raw rows, reads but never writes the rollups, and runs the four functions', async () => {
-    await q(
-      "insert into reporting_analytics (occurred_at, site, name, path, device, user_id) values (now(), 'app', 'page.view', '/', 'desktop', 'u1')",
-    );
-    expect((await q('select count(*)::int as n from reporting_analytics'))[0]?.n).toBe(1);
-    await expect(q("update reporting_analytics set path = '/x'")).rejects.toThrow(
-      /permission denied/,
-    );
-    await expect(q('delete from reporting_analytics')).rejects.toThrow(/permission denied/);
-    await expect(
-      q(
-        "insert into reporting_analytics_daily (day, site, grain, views, visitors, people) values (current_date, 'app', 'site', 1, 1, 1)",
-      ),
-    ).rejects.toThrow(/permission denied/);
-    await expect(q('delete from reporting_analytics_weekly')).rejects.toThrow(/permission denied/);
-    expect((await q('select reporting_rollup_day(current_date) as n'))[0]?.n).toBeGreaterThan(0);
-    expect(
-      (await q('select count(*)::int as n from reporting_analytics_daily'))[0]?.n,
-    ).toBeGreaterThan(0);
-    await q(`select reporting_rollup_week((date_trunc('week', current_date))::date)`);
-    await expect(
-      q("select reporting_prune_analytics(interval '7 days', 10, current_date - 100)"),
-    ).rejects.toThrow(/not before the rollups/);
-    expect((await q("select reporting_erase_person('u1') as n"))[0]?.n).toBe(1);
   });
 
   it('errors: can select, insert and update, cannot delete or truncate', async () => {
@@ -292,7 +243,5 @@ describe.skipIf(!URL_)('the runtime role', () => {
     expect(await pruneBatch(orm, 30, 10)).toBeGreaterThanOrEqual(0);
     expect(await pruneErrorsBatch(orm, 30, 10)).toBeGreaterThanOrEqual(0);
     expect(await pruneOpenErrorsBatch(orm, 100, 10)).toBeGreaterThanOrEqual(0);
-    const today = new Date().toISOString().slice(0, 10);
-    expect(await pruneAnalyticsBatch(orm, 30, 10, today)).toBeGreaterThanOrEqual(0);
   });
 });

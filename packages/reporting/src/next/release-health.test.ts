@@ -33,21 +33,16 @@ const get = (path: string, token?: string) =>
 const range = `from=${encodeURIComponent('2026-10-10T11:00:00Z')}&to=${encodeURIComponent('2026-10-10T13:00:00Z')}`;
 
 describe('tags and counter', () => {
-  it('stamps release and color on events, analytics and errors, and null for a bad color', async () => {
+  it('stamps release and color on events and errors, and null for a bad color', async () => {
     vi.stubEnv('REPORTING_RELEASE', 'sha256:aa');
     vi.stubEnv('REPORTING_COLOR', 'green');
     const r = reporting();
     r.event({ kind: 'tag.one', message: 'm' });
-    await r.analytics.track({ name: 'tag_view', path: '/' });
     r.captureError(new TypeError('tagged boom'));
     await new Promise((resolve) => setTimeout(resolve, 50));
     await r.flush();
     const ev = await t.query(`select release, color from reporting_events where kind = 'tag.one'`);
     expect(ev).toEqual([{ release: 'sha256:aa', color: 'green' }]);
-    const an = await t.query(
-      `select release, color from reporting_analytics where name = 'tag_view'`,
-    );
-    expect(an).toEqual([{ release: 'sha256:aa', color: 'green' }]);
     const er = await t.query(
       `select release, color from reporting_errors where message = 'tagged boom'`,
     );

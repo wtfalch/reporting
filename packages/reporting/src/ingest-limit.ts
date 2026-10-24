@@ -1,13 +1,11 @@
 /**
- * The token bucket both public ingest routes share.
- *
- * `./next`'s analytics collector and its client-error collector are the only
- * two routes in this package a host mounts unauthenticated, and both write to
- * the database on a stranger's say-so. They had one limiter between them: the
- * analytics one. The error route went without until it was noticed that
- * `reporting_errors` never prunes an open row (migrations/0003_errors.sql),
- * so an unbounded public write lands in a table nothing ages out — the two
- * decisions are safe apart and not together.
+ * The token bucket the client-error collector uses (`./next`'s
+ * `clientErrorHandler`): the one route in this package a host mounts
+ * unauthenticated, writing to the database on a stranger's say-so. It went
+ * without a limiter until it was noticed that `reporting_errors` never
+ * prunes an open row (migrations/0003_errors.sql), so an unbounded public
+ * write lands in a table nothing ages out. (The analytics collector this
+ * once shared a limiter with moved to `@wtfalch/analytics` — reporting#71.)
  *
  * Per process, not per deploy: several containers each keep their own, so the
  * real ceiling is this times the container count. Enough to bound abuse,
