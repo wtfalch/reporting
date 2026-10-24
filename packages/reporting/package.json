@@ -1,7 +1,7 @@
 {
   "name": "@wtfalch/reporting",
-  "version": "0.9.0",
-  "description": "The estate's operational event log and housekeeping tick: a writer that never fails a request, a claim protocol that needs no scheduler, and the readers an operator opens. Per-app Postgres, host-supplied logger, framework-neutral core with a Next entry.",
+  "version": "1.0.0",
+  "description": "The estate's systems reporting: an event log and housekeeping tick, a writer that never fails a request, a claim protocol that needs no scheduler, and the readers an operator opens. Per-app Postgres, host-supplied logger, framework-neutral core with a Next entry.",
   "repository": {
     "type": "git",
     "url": "https://github.com/wtfalch/reporting",
@@ -29,10 +29,6 @@
     "./browser": {
       "types": "./dist/browser/index.d.ts",
       "default": "./dist/browser/index.js"
-    },
-    "./react": {
-      "types": "./dist/react/index.d.ts",
-      "default": "./dist/react/index.js"
     },
     "./react/charts": {
       "types": "./dist/react/charts.d.ts",

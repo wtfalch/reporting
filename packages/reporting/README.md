@@ -10,13 +10,21 @@ originally `docs/plans/reporting.md` and `docs/plans/reporting/core.md` in
 everything past 0.2.0 lives in this repo's own `docs/plans/errors.md` and
 `CHANGELOG.md`.
 
-Three records make up reporting on the estate. This package holds the
-**events** (what the system did: jobs, drains, alerts, an integration saying
-no) and, from 0.2, **analytics** (how people use the product). The **audit**
+This package holds the **events** (what the system did: jobs, drains,
+alerts, an integration saying no) and the **errors** record. The **audit**
 trail (who did what to what) is `@wtfalch/audit` and is not here: an audit
 row is transactional and its actor is unforgeable; an event row is best
 effort. The two share column names so a reader can walk between them, and
 nothing else.
+
+Analytics (how people use the product) lived here from 0.2.0 to 0.9.0; it
+moved to its own repo, [`wtfalch/analytics`](https://github.com/wtfalch/analytics),
+and this package no longer reads, writes or ships any analytics code
+(issue #71). Migrations `0002_analytics.sql` and `0005_analytics_session_index.sql`
+stay, because a migration only adds: the `reporting_analytics*` tables and
+their functions still exist in a database that applied them, holding
+whatever rows this package wrote before the move, until a later migration
+drops them once that data has moved to the new package's own store.
 
 ## Status
 
@@ -56,8 +64,7 @@ await ensureRuntimeRole({
   ownerUrl,
   runtimeUrl,
   schemas: ['myservice'],
-  appendOnly: ['reporting_events', 'reporting_analytics'], // insert and read only
-  readOnly: ['reporting_analytics_daily', 'reporting_analytics_weekly'], // the rollups: written only by the functions
+  appendOnly: ['reporting_events'], // insert and read only
   noDelete: [ // insert and update, never delete (needs @wtfalch/db 0.5.2 or later)
     'reporting_tasks',
     'reporting_settings',
@@ -66,17 +73,19 @@ await ensureRuntimeRole({
     'reporting_error_tenants',
     'reporting_requests',
   ],
-  grants: [ // the seven security definer functions, schema-qualified
+  grants: [ // the three security definer functions this package's own code still calls, schema-qualified
     'myservice.reporting_prune_events(interval, integer)',
-    'myservice.reporting_rollup_day(date)',
-    'myservice.reporting_rollup_week(date)',
-    'myservice.reporting_prune_analytics(interval, integer, date)',
-    'myservice.reporting_erase_person(text)',
     'myservice.reporting_prune_errors(interval, integer)',
     'myservice.reporting_prune_open_errors(integer, integer)',
   ],
 });
 ```
+
+A database migrated before 1.0.0 also carries the analytics tables and
+their four functions (`reporting_rollup_day`, `reporting_rollup_week`,
+`reporting_prune_analytics`, `reporting_erase_person`); this package's code
+no longer calls them, so a host moving to 1.0.0 may drop their grants from
+its own `ensureRuntimeRole`/`assertRuntimeRole` calls along with this one's.
 
 Run `ensureRuntimeRole` after every migration run: the lists apply to the
 tables that exist at that moment. `grants` entries are spliced into SQL, so
@@ -91,8 +100,7 @@ includes the schema:
 import { assertRuntimeRole } from '@wtfalch/db/runtime-role';
 
 await assertRuntimeRole(connection.database, {
-  appendOnly: ['myservice.reporting_events', 'myservice.reporting_analytics'],
-  readOnly: ['myservice.reporting_analytics_daily', 'myservice.reporting_analytics_weekly'],
+  appendOnly: ['myservice.reporting_events'],
   noDelete: [
     'myservice.reporting_tasks',
     'myservice.reporting_settings',
@@ -210,7 +218,7 @@ commits.
 ## Release health (0.8.0)
 
 With `REPORTING_RELEASE` (an image digest) and `REPORTING_COLOR` (`blue` or
-`green`) set, every event, analytics and error row carries both. Count each
+`green`) set, every event and error row carries both. Count each
 response and mount the read foundry judges a new color by:
 
 ```ts
@@ -269,79 +277,22 @@ registerShutdownFlush(reporting);   // one bounded flush on SIGTERM
 Best effort. The queue is per process and bounded at 1,000; the logger has
 every row regardless.
 
-## Analytics (0.2.0)
+## Analytics moved (0.2.0 to 0.9.0, moved in 1.0.0)
 
-**Topology, today:** this package is a library, not a host. `createReporting({
-db, ... })` binds to whichever Postgres the calling app already has, and
-every table below lives in that one app's own database. `tenantId` scopes a
-read to one organisation *within* that single app's database — it does not
-let a console outside that app read anything. There is no cross-app or
-cross-company read: one company's own Boule sees only the rows its own
-process wrote.
+This package carried analytics -- the beacon, the collector, the rollups and
+`reporting.analytics.track` -- from 0.2.0 through 0.9.0. William, 2026-10-11:
+"reporting will be for systems reporting". It now lives in its own repo,
+[`wtfalch/analytics`](https://github.com/wtfalch/analytics), published as
+`@wtfalch/analytics`; see that package for the beacon, the collector and the
+read API. Nothing in `@wtfalch/reporting` reads, writes or serves analytics
+any more.
 
-**Topology, target (settled 2026-09-28, planned after launch):** one shared
-reporting collector, org-scoped like `@wtfalch/files` and `@wtfalch/ai` —
-every app's `reporting` calls point at that one shared store instead of a
-database of its own, row-level scoping keeps one company's rows out of
-another's reads, Archon reads totals across every company, and each
-company's own Boule reads only its own organisation's slice. Not built yet:
-today's shape is the per-app library described above, and the shared-host
-change (or a lighter "point every app's `reporting` at one app's database"
-approach) is an open architecture question for whoever picks it up next.
-
-Three tables and two writers. `reporting_analytics` holds raw rows for a
-window (`analytics.retention_days`, default 90); `reporting_analytics_daily`
-and `reporting_analytics_weekly` hold counts with no identifier in any column
-and are kept indefinitely. The rollups store distinct visitor and people
-counts at every grain a reader asks for (site, tenant, name, path, device,
-country, referrer) rather than summing finer groups, keep a contiguous
-completed-day watermark in `reporting_tasks`, and pruning never passes what
-they still need.
-
-```ts
-// The collector, a public route: POST and OPTIONS, always 204.
-import { collectHandler } from '@wtfalch/reporting/next';
-const handle = collectHandler({
-  reporting, db,
-  sites: JSON.parse(process.env.REPORTING_SITES ?? '{}'),
-  getUserId: async () => (await getSession())?.user.id ?? null,
-  tenantFor: async (userId, pathname) => tenantIfMember(userId, pathname),
-  normalisePath: routePattern,
-});
-export const POST = handle;
-export const OPTIONS = handle;
-
-// The beacon, in the root layout.
-import { ReportingProvider, ConsentControl } from '@wtfalch/reporting/react';
-<ReportingProvider collector="/api/reporting/collect" site="app" consent="consented">
-  {children}
-  <ConsentControl>We count visits. Allow a cookie so we can tell returning visitors apart?</ConsentControl>
-</ReportingProvider>
-
-// Server-side truth, from a Server Action.
-await reporting.analytics.track({ name: 'invoice.approved', userId: access.actor.id, tenantId, path });
-
-// Housekeeping.
-housekeeping.register(rollupAnalytics);
-housekeeping.register(rollupAnalyticsWeekly);
-housekeeping.register(pruneAnalytics);
-```
-
-What the beacon never sends: a user id. Identity is joined server-side from
-the session, for same-origin beacons only; a beacon from an allowed foreign
-origin (`sites`) is recorded with no user and no tenant, whatever cookies it
-carries. Paths are normalised to route patterns before storage
-(`normalisePath`: uuids, numbers, tokens and addresses become placeholders),
-the query string never arrives, the user agent becomes a device class and is
-discarded, and `cf-ipcountry` becomes two letters or nothing.
-
-Consent: `none` stores nothing about the browser; `consented` (the default)
-sets the first-party cookie `_rp` only after `accept()`; `always` sets it
-without asking. `analytics.identify_signed_in` is the one line that turns
-server-side identification off.
-
-Erasure: `reporting_erase_person(subject)` deletes the subject's raw rows;
-the rollups hold nothing to erase. Call it in the host's erasure transaction.
+Migrations `0002_analytics.sql` and `0005_analytics_session_index.sql` stay
+in this package (a migration only adds), so a host that already applied them
+keeps the `reporting_analytics`, `reporting_analytics_daily` and
+`reporting_analytics_weekly` tables and the four functions that wrote them,
+holding whatever rows this package wrote before 1.0.0. A later migration
+drops them once that data has moved to `@wtfalch/analytics`'s own store.
 
 ## Tests
 
