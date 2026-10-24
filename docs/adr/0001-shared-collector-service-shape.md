@@ -1,5 +1,7 @@
 # 0001 — The shared collector is a service, not a shared database
 
+Status: superseded by [0002](0002-one-backend-and-app-per-company.md), 2026-10-24.
+
 ## Context
 
 Issue #42, tracking the estate decision recorded in `wtfalch/estate`'s

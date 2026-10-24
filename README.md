@@ -1,5 +1,11 @@
 # reporting
 
+> Direction (2026-10-24, `docs/adr/0002-one-backend-and-app-per-company.md`):
+> each company runs its own reporting backend and app, deployed by foundry.
+> `packages/sdk` becomes the published `@wtfalch/reporting`, and today's
+> library becomes the private `@wtfalch/reporting-core`. The shared collector
+> in ADR 0001 is superseded.
+
 The estate's systems reporting: an operational event log and the
 housekeeping tick behind it, published as `@wtfalch/reporting`. It sits
 beside `auth` (who is this), `authz` (what may they do), `audit` (what did
