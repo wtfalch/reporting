@@ -15,6 +15,7 @@ export * from './schema.js';
 export * from './tables.js';
 export * from './types.js';
 export { alertKind, projectDetail } from './alerts.js';
+export { countSignIn, SLOW_REQUEST_MS } from './requests.js';
 export { CONSENT_MODES, DEFAULT_SETTINGS, RETENTION_BOUNDS } from './settings.js';
 export * from './analytics/schema.js';
 export { createCollector, type CollectorOptions, type Sites } from './analytics/collector.js';
@@ -121,7 +122,7 @@ export function createReporting(options: ReportingOptions): Reporting {
       await requests.flush();
     },
     requests: {
-      record: (status) => requests.record(status),
+      record: (status, durationMs) => requests.record(status, durationMs),
       recordError: () => requests.recordError(),
     },
     events: { page: (opts) => eventsPage(options.db, opts) },

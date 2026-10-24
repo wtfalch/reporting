@@ -259,6 +259,31 @@ when the proxy matcher covers it: it would be counted twice. In Next 16
 and its Postgres flush work; on the Edge runtime both functions count nothing.
 A counting failure is logged and never fails the request.
 
+### Release series (0.10.0)
+
+`release-series` is the same counts as a series, for drawing a new color against
+the live one. Mount it next to release-health, and call `countSignIn(ok)` where
+the app knows a sign-in's outcome:
+
+```ts
+// app/api/reporting/release-series/route.ts
+import { releaseSeriesHandler } from '@wtfalch/reporting/next';
+export const GET = releaseSeriesHandler({ db, reporting });
+
+// where a sign-in succeeds or fails (after createReporting has run)
+import { countSignIn } from '@wtfalch/reporting';
+countSignIn(true);
+```
+
+`GET ?from=<ISO>&to=<ISO>&bucket=<10|20|60>` takes the same bearer token and
+8-day limit as release-health, and bucket defaults to 20. Buckets start at
+`from`; each holds `requests`, `errors`, `slow`, `durationMsSum`, `signIns` and
+`signInFailures` per color, and a bucket with no counts is present with zeros.
+`record(status, durationMs)` adds the time; over 1000 ms is slow. `countRequests`
+times the proxy function only, so a page that renders slowly after the proxy
+passes it is not seen as slow there; use `withRequestCount` to time a whole
+route handler. `/api/reporting/release-series` is not counted as traffic.
+
 ## Shutdown
 
 ```ts

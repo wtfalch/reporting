@@ -26,10 +26,11 @@ import type { Reporting } from '../types.js';
  * Neither function ever fails a request: a counting error is logged.
  */
 
-/** The probe and the release-health read are not traffic; counting them would swamp the signal. */
+/** The probe and the release reads are not traffic; counting them would swamp the signal. */
 export const DEFAULT_UNCOUNTED_PATHS: readonly string[] = [
   '/api/health',
   '/api/reporting/release-health',
+  '/api/reporting/release-series',
 ];
 
 export interface CountOptions {
@@ -71,6 +72,8 @@ function safely(reporting: Pick<Reporting, 'log'>, what: string, fn: () => void)
 /**
  * Wraps the app's proxy function: `export const proxy = countRequests(reporting, handler)`.
  * Counts the status the proxy answers with; a throw counts as a 500 and goes on.
+ * The duration is the proxy function's own time: a request it passes through
+ * is not timed past the proxy. Use `withRequestCount` for a whole handler.
  */
 export function countRequests<A extends { url: string }, R extends { status: number } | undefined>(
   reporting: Pick<Reporting, 'requests' | 'log'>,
@@ -78,20 +81,21 @@ export function countRequests<A extends { url: string }, R extends { status: num
   options: CountOptions = {},
 ): (request: A) => Promise<R> {
   const skip = options.skipPaths ?? DEFAULT_UNCOUNTED_PATHS;
-  const count = (request: A, status: number) =>
+  const count = (request: A, status: number, durationMs: number) =>
     safely(reporting, 'request count', () => {
       if (isEdge() || isSkipped(pathnameOf(request.url), skip)) return;
-      reporting.requests.record(status);
+      reporting.requests.record(status, durationMs);
     });
   return async (request) => {
+    const started = performance.now();
     let response: R;
     try {
       response = await handler(request);
     } catch (error) {
-      count(request, 500);
+      count(request, 500, performance.now() - started);
       throw error;
     }
-    count(request, response?.status ?? 200);
+    count(request, response?.status ?? 200, performance.now() - started);
     return response;
   };
 }

@@ -204,8 +204,11 @@ export interface Reporting {
   readonly site: string;
   readonly log: Logger;
   readonly analytics: Analytics;
-  /** Counts one response for the release-health read; `flush` writes the counts. Never throws. */
-  readonly requests: { record(status: number): void; recordError(): void };
+  /**
+   * Counts one response for the release reads; `flush` writes the counts. Never throws.
+   * `durationMs` (when timed) adds to the duration sum; over 1000 ms counts as slow.
+   */
+  readonly requests: { record(status: number, durationMs?: number): void; recordError(): void };
   stats(): Stats;
 }
 
