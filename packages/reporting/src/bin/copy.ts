@@ -52,7 +52,7 @@ export function copyMigrations(opts: { from: string; to: string; version?: strin
     const rest = NUMBERED.exec(name)?.[2] ?? name;
     const target = `${String(next).padStart(4, '0')}_${rest}`;
     const body = readFileSync(join(opts.from, name), 'utf8');
-    const header = `-- Copied from @wtfalch/reporting${opts.version ? ` ${opts.version}` : ''} (migrations/${name}) by reporting-migrations.\n-- Do not edit here; the next package version ships the next file.\n\n`;
+    const header = `-- Copied from @wtfalch/reporting-core${opts.version ? ` ${opts.version}` : ''} (migrations/${name}) by reporting-migrations.\n-- Do not edit here; the next package version ships the next file.\n\n`;
     writeFileSync(join(opts.to, target), header + body);
     manifest.copied[name] = target;
     copied.push({ from: name, to: target });

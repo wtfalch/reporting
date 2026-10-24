@@ -4,7 +4,7 @@
   "packageManager": "pnpm@10.0.0",
   "engines": { "node": ">=22.0.0" },
   "scripts": {
-    "check": "pnpm build && pnpm lint && pnpm typecheck && pnpm test",
+    "check": "node scripts/check-wtfalch-pins.mjs && pnpm build && pnpm lint && pnpm typecheck && pnpm test && node scripts/check-package.mjs",
     "lint": "biome check .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

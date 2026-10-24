@@ -1,4 +1,4 @@
-# @wtfalch/reporting
+# @wtfalch/reporting-core
 
 The estate's operational event log and the housekeeping tick behind it: a
 writer that never fails a request, a claim protocol that needs no scheduler,
@@ -28,12 +28,12 @@ drops them once that data has moved to the new package's own store.
 
 ## Status
 
-Published: yes, v0.5.1, 2026-09-28
+Published: no. Private since 2026-10-24 (ADR 0002). It shipped as `@wtfalch/reporting` up to 1.1.0; that name is now the SDK in `packages/sdk`. Hosts still on the 1.x library keep their exact pin.
 
 ## Install
 
 ```sh
-pnpm add @wtfalch/reporting @wtfalch/db
+pnpm add @wtfalch/db   # and "@wtfalch/reporting-core": "workspace:*" inside this repo
 ```
 
 The package ships SQL and never connects or migrates. The host installs
@@ -47,7 +47,7 @@ let a temp table shadow a table inside a `SECURITY DEFINER` function, and
 0.5.2 puts `pg_temp` last on the runner's `search_path`.
 
 ```ts
-import { migrationsDir as reportingMigrations } from '@wtfalch/reporting/migrations-dir';
+import { migrationsDir as reportingMigrations } from '@wtfalch/reporting-core/migrations-dir';
 import { runMigrationSources } from '@wtfalch/db/migrate';
 import { ensureRuntimeRole } from '@wtfalch/db/runtime-role';
 
@@ -124,9 +124,9 @@ runtime-role step, so the host must grant and revoke by hand.
 
 ```ts
 // src/lib/reporting/core.ts, the one file that imports your raw handle
-import { createReporting } from '@wtfalch/reporting';
-import { createHousekeeping, pruneErrors, pruneEvents, retentionLag } from '@wtfalch/reporting/housekeeping';
-import { deferWithAfter } from '@wtfalch/reporting/next';
+import { createReporting } from '@wtfalch/reporting-core';
+import { createHousekeeping, pruneErrors, pruneEvents, retentionLag } from '@wtfalch/reporting-core/housekeeping';
+import { deferWithAfter } from '@wtfalch/reporting-core/next';
 
 export const reporting = createReporting({
   db,                       // your drizzle handle
@@ -146,7 +146,7 @@ Re-export the tables from your schema module so your drizzle instance knows
 them:
 
 ```ts
-export { reportingEvents, reportingTasks, reportingSettings } from '@wtfalch/reporting';
+export { reportingEvents, reportingTasks, reportingSettings } from '@wtfalch/reporting-core';
 ```
 
 ## Write
@@ -189,7 +189,7 @@ health route:
 
 ```ts
 // src/app/api/health/route.ts
-import { healthHandler } from '@wtfalch/reporting/next';
+import { healthHandler } from '@wtfalch/reporting-core/next';
 export const GET = healthHandler(housekeeping);
 ```
 
@@ -223,11 +223,11 @@ response and mount the read foundry judges a new color by:
 
 ```ts
 // app/api/reporting/release-health/route.ts
-import { releaseHealthHandler } from '@wtfalch/reporting/next';
+import { releaseHealthHandler } from '@wtfalch/reporting-core/next';
 export const GET = releaseHealthHandler({ db, reporting });
 
 // any route handler: counted per minute, color and release (status >= 500 is an error)
-import { withRequestCount } from '@wtfalch/reporting/next';
+import { withRequestCount } from '@wtfalch/reporting-core/next';
 export const POST = withRequestCount(reporting, async (req) => Response.json({ ok: true }));
 ```
 
@@ -247,11 +247,11 @@ change per route, add one line to `proxy.ts` and one to `instrumentation.ts`:
 
 ```ts
 // src/proxy.ts: wrap the proxy function you already export
-import { countRequests } from '@wtfalch/reporting/next';
+import { countRequests } from '@wtfalch/reporting-core/next';
 export const proxy = countRequests(reporting, async (request) => { /* as before */ });
 
 // src/instrumentation.ts: pass the handler you already export (Sentry's, say) as the second argument
-import { countRequestErrors } from '@wtfalch/reporting/next';
+import { countRequestErrors } from '@wtfalch/reporting-core/next';
 export const onRequestError = countRequestErrors(reporting, Sentry.captureRequestError);
 ```
 
@@ -275,11 +275,11 @@ the app knows a sign-in's outcome:
 
 ```ts
 // app/api/reporting/release-series/route.ts
-import { releaseSeriesHandler } from '@wtfalch/reporting/next';
+import { releaseSeriesHandler } from '@wtfalch/reporting-core/next';
 export const GET = releaseSeriesHandler({ db, reporting });
 
 // where a sign-in succeeds or fails (after createReporting has run)
-import { countSignIn } from '@wtfalch/reporting';
+import { countSignIn } from '@wtfalch/reporting-core';
 countSignIn(true);
 ```
 
@@ -295,7 +295,7 @@ route handler. `/api/reporting/release-series` is not counted as traffic.
 ## Shutdown
 
 ```ts
-import { registerShutdownFlush } from '@wtfalch/reporting/next';
+import { registerShutdownFlush } from '@wtfalch/reporting-core/next';
 registerShutdownFlush(reporting);   // one bounded flush on SIGTERM
 ```
 
@@ -309,7 +309,7 @@ This package carried analytics -- the beacon, the collector, the rollups and
 "reporting will be for systems reporting". It now lives in its own repo,
 [`wtfalch/analytics`](https://github.com/wtfalch/analytics), published as
 `@wtfalch/analytics`; see that package for the beacon, the collector and the
-read API. Nothing in `@wtfalch/reporting` reads, writes or serves analytics
+read API. Nothing in `@wtfalch/reporting-core` reads, writes or serves analytics
 any more.
 
 Migrations `0002_analytics.sql` and `0005_analytics_session_index.sql` stay

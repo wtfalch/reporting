@@ -7,7 +7,7 @@ import { copyMigrations, describeCopy } from './copy.js';
 /**
  * `reporting-migrations [dir]`: copy this package's migrations the app has
  * not yet copied into `dir` (default `drizzle`) as the next numbers.
- * Idempotent; run it after every upgrade of @wtfalch/reporting, then commit
+ * Idempotent; run it after every upgrade of @wtfalch/reporting-core, then commit
  * what it wrote.
  */
 const here = dirname(fileURLToPath(import.meta.url));

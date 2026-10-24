@@ -43,6 +43,12 @@ jobs:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
+      # Manifests only, before install: it names the one package that
+      # publishes (packages/sdk, @wtfalch/reporting) and fails in seconds if
+      # there are zero or several.
+      - name: which package publishes
+        id: pkg
+        run: node .github/scripts/find-publishable-package.mjs
       - name: an npm that speaks trusted publishing
         run: npm install -g npm@latest && npm --version
       - run: pnpm install --frozen-lockfile
@@ -50,16 +56,16 @@ jobs:
       # The same check CI runs: the tarball is dist and nothing else. A
       # release is the one moment that matters, so it is asked here too.
       - name: the tarball holds dist and nothing else
-        run: pnpm --filter @wtfalch/reporting exec npm pack --dry-run
+        run: pnpm --filter ${{ steps.pkg.outputs.name }} exec npm pack --dry-run
       # The tag is the version. A tag that disagrees with package.json is a
       # release of the wrong thing, and this is where it stops.
       - name: tag matches package.json
         run: |
           TAG="${GITHUB_REF_NAME#v}"
-          PKG="$(node -p "require('./packages/reporting/package.json').version")"
+          PKG="${{ steps.pkg.outputs.version }}"
           [ "$TAG" = "$PKG" ] || { echo "tag v$TAG != package $PKG"; exit 1; }
       # `npm publish` directly rather than `pnpm publish`: the OIDC exchange
       # is the npm CLI's, and the upgraded npm above is the one on PATH.
       - name: publish
-        working-directory: packages/reporting
+        working-directory: ${{ steps.pkg.outputs.dir }}
         run: npm publish --access public --ignore-scripts

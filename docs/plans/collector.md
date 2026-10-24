@@ -1,5 +1,8 @@
 # The shared collector — slice plan
 
+> Superseded 2026-10-24 by `docs/adr/0002-one-backend-and-app-per-company.md`.
+> Slices 3 to 8 below are struck and will not be built.
+
 Tracks issue #42. `docs/adr/0001-shared-collector-service-shape.md` decided
 the shape; this is the sequence that gets there. Each slice is sized for one
 PR under 800 changed lines outside generated files, and each one must be
@@ -109,64 +112,14 @@ independently mergeable to `main`.
    gate. Everything below assumes this exists. Done-check: `pnpm check`
    exits 0 with the new workspace layout; `apps/host` builds.
 
-3. **Schema: organisation id mandatory, forced RLS, the guard test.** Port
-   `reporting_events`/`reporting_tasks`/`reporting_settings`/
-   `reporting_tenant_settings`/`reporting_analytics`/
-   `reporting_analytics_daily`/`reporting_analytics_weekly`/
-   `reporting_errors` into `packages/service/src/migrations`,
-   `organisation_id` becomes `NOT NULL` on every row-holding table, add
-   `ENABLE`/`FORCE ROW LEVEL SECURITY` plus one policy per table (point 2),
-   add `org-scope.ts`'s `withOrganisation`, and the RLS guard test (the
-   `cms` `0012_cms_0008_cms_rls.test.ts` shape) plus an isolation suite (two
-   organisations, cross-read and cross-write both rejected, the `cms`
-   `rls.test.ts` shape). Done-check: `pnpm check` exits 0;
-   `TEST_DATABASE_URL=... pnpm check` exits 0 too (the RLS suite only runs
-   against real Postgres — PGlite has no second, non-superuser role to be);
-   the guard test is proven to fail first, against a throwaway table with no
-   policy, before that table is removed and the PR is opened.
+3. ~~Schema: organisation id mandatory, forced RLS, the guard test.~~
+4. ~~Batch ingest endpoint and bounded writer buffer.~~
+5. ~~Readers: org-scoped, plus an operator scope.~~
+6. ~~`./react` beacon points at the shared host.~~
+7. ~~Prune and rollups run in the collector.~~
+8. ~~Migration path doc and first app cutover.~~
 
-4. **Batch ingest endpoint + bounded writer buffer.** `packages/service`'s
-   `POST /v1/ingest` (batch), a keys-issued credential check, a per-
-   organisation RLS-scoped insert; `packages/sdk`'s writer buffers and
-   flushes in batches, bounded, never throwing in production on a slow or
-   unreachable host (the same contract `event()` already has). Done-check:
-   `pnpm check` exits 0; a writer test proves the buffer drops past its
-   bound rather than blocking; a service test proves a batch cannot plant a
-   row under an organisation id other than the credential's own.
-
-5. **Readers: org-scoped, plus an operator scope.** `packages/sdk`'s
-   `events.page()`/`analytics.*` read calls go over HTTP, scoped to the
-   caller's organisation; a separate operator-scoped read (Archon's totals)
-   lives at the host, gated by its own distinct permission. Done-check:
-   `pnpm check` exits 0; a test proves an org-scoped read never returns
-   another organisation's row even when asked for one by id, and a
-   non-operator caller is refused the totals read.
-
-6. **`./react` beacon points at the shared host.** `ReportingProvider`/
-   `ConsentControl` take the shared collector's URL as a prop instead of
-   assuming a same-app route; the one app (or `app-template`) that wires it
-   today updates its own binding, as a separate PR in that repo. Done-check:
-   `pnpm check` exits 0 in `reporting`; the consuming app's own PR is its own
-   done-check, not this repo's gate.
-
-7. **Prune and rollups run in the collector.** Move
-   `pruneEvents`/`pruneAnalytics`/`rollupAnalytics`/`rollupAnalyticsWeekly`/
-   `retentionLag` housekeeping registration from "every app's own health
-   tick" to the host's own tick, iterating every organisation via the
-   `SECURITY DEFINER` due-organisations functions from point 2. Done-check:
-   `pnpm check` exits 0; a test proves one tick run processes more than one
-   organisation and never touches organisation B's watermark while claiming
-   organisation A's task.
-
-8. **Migration path doc + first app cutover.** Once slices 2-7 are live and
-   released, write the per-app migration doc (the env var that points an
-   app's SDK at the shared host, and whether an app's existing per-app rows
-   are archived in place or backfilled), then cut the first consuming app
-   over as its own PR in that app's repo — not this one. Done-check: that
-   app's own gate, plus a read against the shared host returning that app's
-   own pre-cutover history if backfilled.
-
-Slices 2-7 are all in `wtfalch/reporting`; slice 8 is partly cross-repo.
-None of 3-7 splits usefully smaller without leaving row-level security or
-the write path half-built for a stretch, which costs more than one
-self-contained PR each.
+Slices 3 to 8 are struck. `docs/adr/0002-one-backend-and-app-per-company.md`
+replaces the shared collector with one backend and app per company, so the
+shared store, forced RLS and operator-wide reads they describe will not be
+built. The design points above are kept as history only.

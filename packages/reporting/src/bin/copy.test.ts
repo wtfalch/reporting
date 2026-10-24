@@ -14,7 +14,7 @@ describe('copyMigrations', () => {
     const first = copyMigrations({ from, to, version: '0.1.0' });
     expect(first.copied).toEqual([{ from: '0001_reporting.sql', to: '0010_reporting.sql' }]);
     expect(readFileSync(join(to, '0010_reporting.sql'), 'utf8')).toMatch(
-      /^-- Copied from @wtfalch\/reporting 0\.1\.0 \(migrations\/0001_reporting\.sql\)/,
+      /^-- Copied from @wtfalch\/reporting-core 0\.1\.0 \(migrations\/0001_reporting\.sql\)/,
     );
     expect(JSON.parse(readFileSync(join(to, MANIFEST), 'utf8'))).toEqual({
       copied: { '0001_reporting.sql': '0010_reporting.sql' },
