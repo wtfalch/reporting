@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createReporting } from './index.js';
 import { memoryLog } from './test/db.js';
 import type { Db } from './types.js';
+import { REPORT_TIMEOUT_MS } from './writer.js';
 
 /**
  * The writer's failure modes, against a database stand-in that records or
@@ -215,6 +216,68 @@ describe('flush() with overlapping callers', () => {
     await Promise.all([first, second]);
     expect(inserted.flat()).toHaveLength(2);
     expect(r.stats()).toMatchObject({ queued: 0, flushed: 2 });
+  });
+});
+
+describe('flush() against a write that never settles', () => {
+  it('gives up within REPORT_TIMEOUT_MS instead of holding the caller forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const log = memoryLog();
+      const db = {
+        insert: () => ({ values: () => new Promise<void>(() => {}) }),
+      } as unknown as Db;
+      const r = createReporting({ db, log, site: 'test', mode: 'test', defer: () => {} });
+      r.event({ kind: 'a.b', message: 'x' });
+      let settled = false;
+      const flushed = r.flush().then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(REPORT_TIMEOUT_MS);
+      await flushed;
+      expect(settled).toBe(true);
+      // The row is still on its way (spliced into the stuck batch, not the
+      // queue); a flush that gave up never counts it flushed or dropped.
+      expect(r.stats()).toMatchObject({ queued: 0, flushed: 0, dropped: 0 });
+      expect(log.lines.some((l) => /gave up/.test(l.msg ?? ''))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a later flush keeps waiting on the same stuck write, bounded the same way', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveInsert: (() => void) | undefined;
+      const stuckDb = {
+        insert: () => ({
+          values: () =>
+            new Promise<void>((resolve) => {
+              resolveInsert = resolve;
+            }),
+        }),
+      } as unknown as Db;
+      const r = createReporting({
+        db: stuckDb,
+        log: memoryLog(),
+        site: 'test',
+        mode: 'test',
+        defer: () => {},
+      });
+      r.event({ kind: 'a.b', message: 'x' });
+      const first = r.flush();
+      await vi.advanceTimersByTimeAsync(REPORT_TIMEOUT_MS);
+      await first;
+      // The first caller gave up, but the write it started is still in
+      // flight; a second caller waits on that same write, not a new one.
+      const second = r.flush();
+      await vi.advanceTimersByTimeAsync(REPORT_TIMEOUT_MS);
+      await second;
+      expect(r.stats()).toMatchObject({ queued: 0, flushed: 0 });
+      resolveInsert?.();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

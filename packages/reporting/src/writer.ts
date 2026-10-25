@@ -22,6 +22,36 @@ import type { Db, EventInput, Logger, Mode, Stats } from './types.js';
 
 type Row = typeof reportingEvents.$inferInsert;
 
+/**
+ * The bound a flush keeps, however it was triggered (`defer`, the timer, or
+ * a caller's own `flush()`): a write stuck on the database must not hold a
+ * request's `waitUntil` (or a shutdown drain) open past this. The write
+ * itself is not cancelled -- there is no way to cancel a database call
+ * through `defer` -- it keeps running in the background and may still land;
+ * this bound is only on how long a caller waits for it.
+ */
+export const REPORT_TIMEOUT_MS = 5000;
+
+const TIMED_OUT = Symbol('reporting: flush deadline passed');
+
+/** Resolves with `promise`'s value, or `TIMED_OUT` once `ms` passes first. Never cancels `promise`. */
+function raceDeadline<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(TIMED_OUT), Math.max(0, ms));
+    timer.unref?.();
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(TIMED_OUT);
+      },
+    );
+  });
+}
+
 export interface WriterOptions {
   db: Db;
   log: Logger;
@@ -122,7 +152,7 @@ export class Writer {
     if (!this.deferred) {
       this.deferred = true;
       try {
-        this.o.defer(() => this.flush({ deadlineMs: 5000 }));
+        this.o.defer(() => this.flush({ deadlineMs: REPORT_TIMEOUT_MS }));
       } catch (error) {
         // A host's defer that throws (called outside a request scope, say)
         // must not take the event with it; the timer still runs.
@@ -132,7 +162,7 @@ export class Writer {
     if (!this.timer) {
       this.timer = setTimeout(() => {
         this.timer = null;
-        void this.flush({ deadlineMs: 5000 });
+        void this.flush({ deadlineMs: REPORT_TIMEOUT_MS });
       }, this.o.flushEveryMs);
       this.timer.unref?.();
     }
@@ -145,28 +175,57 @@ export class Writer {
    * flush spliced off the queue a moment ago is still on its way, and a
    * caller that returned on an empty queue would read the table too early.
    * Every caller therefore waits for whatever is in flight and looks again.
+   *
+   * `deadlineMs` is a real wall-clock bound on this call, not just on when it
+   * starts new work: a write stuck on the database (a dead connection, a
+   * network partition) no longer holds this past the deadline. The stuck
+   * write is left running -- `this.inFlight` still points at it -- so the
+   * next flush (the timer, say) picks it up where this one gave up.
    */
   async flush(opts: { deadlineMs?: number } = {}): Promise<void> {
-    const deadline = Date.now() + (opts.deadlineMs ?? 5000);
+    const deadline = Date.now() + (opts.deadlineMs ?? REPORT_TIMEOUT_MS);
     while (Date.now() < deadline) {
       if (this.inFlight) {
-        await this.inFlight;
+        const inFlight = this.inFlight;
+        const result = await raceDeadline(inFlight, deadline - Date.now());
+        if (result === TIMED_OUT) {
+          this.logTimedOut();
+          break;
+        }
         continue;
       }
       if (this.queue.length === 0) break;
-      const attempt = this.flushOnce();
-      this.inFlight = attempt;
-      let ok = false;
-      try {
-        ok = await attempt;
-      } finally {
-        this.inFlight = null;
+      const result = await raceDeadline(this.startFlush(), deadline - Date.now());
+      if (result === TIMED_OUT) {
+        this.logTimedOut();
+        break;
       }
       // A failed insert leaves its rows queued; do not spin on the database
       // inside one call. The timer and the next defer try again.
-      if (!ok) break;
+      if (!result) break;
     }
     this.deferred = false;
+  }
+
+  private logTimedOut(): void {
+    this.o.log.error(
+      { err: 'FlushTimeout', queued: this.queue.length },
+      'reporting: flush gave up waiting on a write past its deadline; rows stay queued',
+    );
+  }
+
+  /**
+   * Starts the one `flushOnce` in flight and clears `inFlight` whenever it
+   * eventually settles -- even if every caller that was waiting on it gave
+   * up on its own deadline first.
+   */
+  private startFlush(): Promise<boolean> {
+    const attempt = this.flushOnce();
+    this.inFlight = attempt;
+    void attempt.finally(() => {
+      if (this.inFlight === attempt) this.inFlight = null;
+    });
+    return attempt;
   }
 
   /** One insert of one batch. Resolves true on success; never throws. */
