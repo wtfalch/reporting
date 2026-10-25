@@ -1,3 +1,4 @@
+import type { Reporting } from '@wtfalch/reporting-core';
 import { createReporting } from '@wtfalch/reporting-core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Permission, ReportingPrincipal } from './principal.js';
@@ -103,5 +104,48 @@ describe('createSettingsHandler', () => {
       }),
     );
     expect(rejectsUnknownKey.status).toBe(400);
+  });
+
+  it('answers 503, not 400 with the raw message, when the write fails for a reason other than validation', async () => {
+    const storageFailure = new Error('connection terminated unexpectedly');
+    const reporting: Pick<Reporting, 'settings' | 'tenantSettings'> = {
+      settings: {
+        get: async () => ({ 'events.retention_days': 30 }),
+        set: async () => {
+          throw storageFailure;
+        },
+      },
+      tenantSettings: {
+        get: async () => ({}),
+        set: async () => {
+          throw storageFailure;
+        },
+      },
+    };
+    const handler = createSettingsHandler({
+      reporting,
+      principal: principalWith('reporting:settings'),
+    });
+
+    const siteWide = await handler(
+      new Request('http://svc/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ 'events.retention_days': 14 }),
+      }),
+    );
+    expect(siteWide.status).toBe(503);
+    const siteWideBody = (await siteWide.json()) as { error: { message: string } };
+    expect(siteWideBody.error.message).not.toContain('connection terminated unexpectedly');
+
+    const tenantId = '11111111-1111-1111-1111-111111111111';
+    const tenant = await handler(
+      new Request(`http://svc/settings/tenants/${tenantId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ key: 'events.retention_days', days: 90 }),
+      }),
+    );
+    expect(tenant.status).toBe(503);
+    const tenantBody = (await tenant.json()) as { error: { message: string } };
+    expect(tenantBody.error.message).not.toContain('connection terminated unexpectedly');
   });
 });

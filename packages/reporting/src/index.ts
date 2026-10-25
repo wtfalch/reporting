@@ -13,7 +13,12 @@ export * from './tables.js';
 export * from './types.js';
 export { alertKind, projectDetail } from './alerts.js';
 export { countSignIn, SLOW_REQUEST_MS } from './requests.js';
-export { DEFAULT_SETTINGS, RETENTION_BOUNDS, TENANT_RETENTION_KEYS } from './settings.js';
+export {
+  DEFAULT_SETTINGS,
+  RETENTION_BOUNDS,
+  SettingsValidationError,
+  TENANT_RETENTION_KEYS,
+} from './settings.js';
 export type { TenantRetentionKey } from './settings.js';
 // The error-group list, for a host's triage page: filters, keyset paging and
 // `search` over message and stack. No permission is applied; the host gates.

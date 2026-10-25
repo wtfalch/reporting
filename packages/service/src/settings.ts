@@ -1,5 +1,5 @@
 import type { Reporting, Settings, TenantRetentionKey } from '@wtfalch/reporting-core';
-import { TENANT_RETENTION_KEYS } from '@wtfalch/reporting-core';
+import { SettingsValidationError, TENANT_RETENTION_KEYS } from '@wtfalch/reporting-core';
 import { ServiceError, errorResponse, handle, json, readJson, requirePermission } from './http.js';
 import type { ReportingPrincipal } from './principal.js';
 
@@ -15,16 +15,22 @@ function record(body: unknown, key: string): unknown {
     : undefined;
 }
 
-/** `settings.ts`'s own validation throws a plain `Error`, synchronously, before any write -- never a storage failure. */
+/**
+ * `settings.ts`'s own validation throws `SettingsValidationError`,
+ * synchronously, before any write -- that is the only thing this turns into
+ * `invalid_request`. Anything else (a storage/transaction failure, a
+ * throwing audit hook) is not this function's to translate: it passes
+ * through to `handle()`'s own catch-all, which answers `unavailable`
+ * without leaking the underlying message.
+ */
 async function asInvalidRequest<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
-    if (error instanceof ServiceError) throw error;
-    throw new ServiceError(
-      'invalid_request',
-      error instanceof Error ? error.message : 'Invalid settings',
-    );
+    if (error instanceof SettingsValidationError) {
+      throw new ServiceError('invalid_request', error.message);
+    }
+    throw error;
   }
 }
 
