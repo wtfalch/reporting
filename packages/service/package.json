@@ -1,0 +1,46 @@
+{
+  "name": "@wtfalch/reporting-service",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "HTTP handler factories for the reporting backend: events, errors, settings, release health. Private; the published client is packages/sdk.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wtfalch/reporting",
+    "directory": "packages/service"
+  },
+  "private": true,
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./migrate": {
+      "types": "./dist/migrate.d.ts",
+      "default": "./dist/migrate.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "node -e \"throw new Error('The service implementation is private; publish packages/sdk only')\""
+  },
+  "dependencies": {
+    "@wtfalch/db": "0.5.2",
+    "@wtfalch/reporting-core": "workspace:*",
+    "drizzle-orm": "0.39.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/node": "^22",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.6"
+  }
+}

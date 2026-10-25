@@ -13,6 +13,15 @@ import type { Actor, Db, Settings, SettingsChange } from './types.js';
 export const RETENTION_BOUNDS = { min: 7, max: 400 } as const;
 const retention = z.number().int().min(RETENTION_BOUNDS.min).max(RETENTION_BOUNDS.max);
 
+/**
+ * Thrown only for a shape/bounds problem in the patch itself, synchronously,
+ * before any read or write touches the database -- never for a storage
+ * failure. A caller that wants to answer "bad request" for this and nothing
+ * else (the HTTP service, settings.ts) checks `instanceof` this, not
+ * `instanceof Error`, which a thrown storage/transaction failure is too.
+ */
+export class SettingsValidationError extends Error {}
+
 const DEFS: { [K in keyof Settings]: { schema: z.ZodType<Settings[K]>; default: Settings[K] } } = {
   'events.retention_days': { schema: retention, default: 30 },
 };
@@ -48,10 +57,10 @@ export async function setSettings(
   const entries = Object.entries(patch) as [keyof Settings, unknown][];
   for (const [key, value] of entries) {
     const def = DEFS[key];
-    if (!def) throw new Error(`reporting.settings: unknown key "${key}"`);
+    if (!def) throw new SettingsValidationError(`reporting.settings: unknown key "${key}"`);
     const parsed = (def.schema as z.ZodType<unknown>).safeParse(value);
     if (!parsed.success) {
-      throw new Error(
+      throw new SettingsValidationError(
         key.endsWith('retention_days')
           ? `reporting.settings: ${key} must be an integer between ${RETENTION_BOUNDS.min} and ${RETENTION_BOUNDS.max}`
           : `reporting.settings: ${key} is not a valid value`,
@@ -135,7 +144,7 @@ export async function setTenantRetention(
   if (days !== null) {
     const parsed = retention.safeParse(days);
     if (!parsed.success) {
-      throw new Error(
+      throw new SettingsValidationError(
         `reporting.tenantSettings: ${key} must be an integer between ${RETENTION_BOUNDS.min} and ${RETENTION_BOUNDS.max}`,
       );
     }
