@@ -85,7 +85,22 @@ export function redactText(text: string, secrets: readonly string[]): string {
  * A string that only looks like a secret and is not one, such as a version
  * like `lodash@4.17.20`, is left alone.
  */
-const PII_PATTERNS: readonly [RegExp, string][] = [
+type Replacement = string | ((...match: string[]) => string);
+
+/**
+ * Whether a labelled value looks like an opaque credential rather than an
+ * ordinary word. `invalid token: expected` and `secret: missing` must keep
+ * their next word, so a colon after the label can't be enough on its own —
+ * only a value that is long, or carries a digit, reads as a token rather
+ * than prose. A real secret (base64url, hex, a UUID) satisfies one of these
+ * almost by construction; a plain English word after the label usually does
+ * not.
+ */
+function looksOpaque(value: string): boolean {
+  return value.length >= 16 || /\d/.test(value);
+}
+
+const PII_PATTERNS: readonly [RegExp, Replacement][] = [
   // URL userinfo: `scheme://user:pass@host` keeps scheme and user, drops the
   // password (also `scheme://:pass@host`). Before the email rule, which would
   // otherwise take `pass@host` and leave the user behind a wrong label.
@@ -109,10 +124,13 @@ const PII_PATTERNS: readonly [RegExp, string][] = [
   // A JSON "cookie" / "set-cookie" value.
   [/("(?:set-)?cookie"\s*:\s*)"(?:[^"\\]|\\.){0,2048}"/gi, '$1"[redacted: cookie]"'],
   // A labelled secret in `=`, `:`, JSON (`"password":"x"`) or `%3D` form,
-  // including `x-api-key:` headers. A quoted value is taken whole.
+  // including `x-api-key:` headers. A quoted value is taken whole — quoting
+  // it is already a declaration of intent. A bare value is redacted only
+  // when it looksOpaque, so prose like `invalid token: expected` survives.
   [
-    /((?:password|passwd|token|secret|api[_-]?key|apikey|client_secret|access_token|refresh_token)["']?\s*(?::|=|%3D)\s*)(?:"(?:[^"\\]|\\.){0,512}"|'[^']{0,512}'|[^\s&;,'"}]+)/gi,
-    '$1[redacted: secret]',
+    /((?:password|passwd|token|secret|api[_-]?key|apikey|client_secret|access_token|refresh_token)["']?\s*(?::|=|%3D)\s*)(?:"(?:[^"\\]|\\.){0,512}"|'[^']{0,512}'|([^\s&;,'"}]+))/gi,
+    (match: string, prefix: string, bareValue: string | undefined) =>
+      bareValue === undefined || looksOpaque(bareValue) ? `${prefix}[redacted: secret]` : match,
   ],
   // JWT: three base64url segments, the first two starting with an encoded `{"`.
   // Linear: a start cannot sit inside a base64url run (the lookbehind), and
@@ -134,7 +152,12 @@ const PII_PATTERNS: readonly [RegExp, string][] = [
 
 export function redactPii(text: string): string {
   let out = text;
-  for (const [pattern, replacement] of PII_PATTERNS) out = out.replace(pattern, replacement);
+  for (const [pattern, replacement] of PII_PATTERNS) {
+    out =
+      typeof replacement === 'string'
+        ? out.replace(pattern, replacement)
+        : out.replace(pattern, replacement);
+  }
   return out;
 }
 
