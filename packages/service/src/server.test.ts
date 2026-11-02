@@ -1,4 +1,4 @@
-import { createCapture } from '@wtfalch/reporting-core';
+import { createCapture, scopedFingerprint } from '@wtfalch/reporting-core';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { encodeCursor } from './reads.js';
 import { createReportingHandler } from './server.js';
@@ -164,7 +164,7 @@ describe('POST /v1/errors', () => {
     );
   });
 
-  it('gives the same fingerprint an app gets capturing the same Error in process', async () => {
+  it("keys a group by core's fingerprint scoped to the key's site and environment", async () => {
     const error = new TypeError('user 4821 not found');
     error.stack = STACK;
     let fp = '';
@@ -183,7 +183,41 @@ describe('POST /v1/errors', () => {
     await send(shopKey, [
       { kind: 'TypeError', message: error.message, stack: error.stack, runtime: 'server' },
     ]);
-    expect((await onlyGroup()).fingerprint).toBe(fp);
+    expect((await onlyGroup()).fingerprint).toBe(
+      scopedFingerprint({ site: 'shop', environment: 'production' }, fp),
+    );
+  });
+
+  it('the same error from two sites is two groups, and from production and stage of one site two more', async () => {
+    const report = { kind: 'TypeError', message: 'cannot read x', stack: STACK, runtime: 'server' };
+    await send(shopKey, [report, report]);
+    await send(shopStageKey, [report]);
+    await send(blogKey, [report]);
+    const rows = await t.query(
+      'select fingerprint, site, environment, occurrences from reporting_errors order by site, environment',
+    );
+    expect(rows.map((r) => [r.site, r.environment, Number(r.occurrences)])).toEqual([
+      ['blog', 'production', 1],
+      ['shop', 'production', 2],
+      ['shop', 'stage', 1],
+    ]);
+    expect(new Set(rows.map((r) => r.fingerprint)).size).toBe(3);
+    const prod = (await (await get('/v1/errors?site=shop&environment=production')).json()) as {
+      items: { fingerprint: string; environment: string }[];
+    };
+    const stage = (await (await get('/v1/errors?site=shop&environment=stage')).json()) as {
+      items: { fingerprint: string; environment: string }[];
+    };
+    expect(prod.items.map((g) => g.environment)).toEqual(['production']);
+    expect(stage.items.map((g) => g.environment)).toEqual(['stage']);
+    expect(prod.items[0]?.fingerprint).not.toBe(stage.items[0]?.fingerprint);
+    // The fingerprint implies the environment: one site, two groups, each found by its own.
+    const both = (await (await get('/v1/errors?site=shop')).json()) as { items: unknown[] };
+    expect(both.items).toHaveLength(2);
+    for (const fp of [prod.items[0]?.fingerprint, stage.items[0]?.fingerprint]) {
+      expect((await get(`/v1/errors/${fp}?site=shop`)).status).toBe(200);
+      expect((await get(`/v1/errors/${fp}?site=blog`)).status).toBe(404);
+    }
   });
 
   it('groups repeats into one group with a count, and the kind defaults to Error', async () => {
@@ -516,6 +550,20 @@ describe('GET /v1/errors/series', () => {
       buckets: { errors: number }[];
     };
     expect(one.buckets.map((b) => b.errors)).toEqual([0, 0, 1]);
+    // The same error in the same hour from stage and from another site is
+    // another group: a fingerprint's series counts only its own rows.
+    const sameError = (await (await get('/v1/errors?site=shop&environment=production')).json()) as {
+      items: { fingerprint: string; kind: string }[];
+    };
+    const aFp = sameError.items.find((g) => g.kind === 'Error')?.fingerprint;
+    const own = (await (
+      await get(`/v1/errors/series?site=shop&from=${at(9, 0)}&to=${at(12, 0)}&fingerprint=${aFp}`)
+    ).json()) as { buckets: { errors: number }[] };
+    expect(own.buckets.map((b) => b.errors)).toEqual([2, 0, 0]);
+    const events = await t.query(
+      "select data->>'fingerprint' as fp, site, environment from reporting_events order by site, environment",
+    );
+    expect(new Set(events.map((e) => e.fp)).size).toBe(4);
     const day = (await (
       await get(
         `/v1/errors/series?site=shop&from=${at(0, 0)}&to=2026-11-04T00:00:00.000Z&bucket=1440`,

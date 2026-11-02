@@ -5,7 +5,7 @@ import type { ErrorRuntime } from '../schema.js';
 import { reportingErrorTenants, reportingErrors } from '../tables.js';
 import type { AlertFinding, CaptureContext, Db, EventInput, Logger } from '../types.js';
 import { describe } from '../writer.js';
-import { errorKind, fingerprint } from './fingerprint.js';
+import { errorKind, fingerprint, scopedFingerprint } from './fingerprint.js';
 import { heldSecrets, redactPii, redactText } from './redact.js';
 
 /**
@@ -65,6 +65,13 @@ export interface CaptureOptions {
   readonly alert?: (finding: AlertFinding) => void;
   /** Extra env var names `heldSecrets` also redacts, beyond the estate's own KEYSTORE_*; see `ReportingOptions.redactEnvVars`. */
   readonly redactEnvVars?: readonly string[];
+  /**
+   * Groups per site and environment: the group row and the timeline row's
+   * `data.fingerprint` carry `scopedFingerprint(scope, fingerprint)` instead
+   * of the plain fingerprint. For a host that holds several apps' errors in
+   * one database (the reporting service). Absent, nothing changes.
+   */
+  readonly scope?: { readonly site: string; readonly environment: string };
 }
 
 const CAMEL_BOUNDARY = /([a-z0-9])([A-Z])/g;
@@ -313,7 +320,8 @@ export function createCapture(o: CaptureOptions) {
               redactPii(redactText(truncateEnd(rawStack, LIMITS.stack + SLACK), secrets)),
               LIMITS.stack,
             );
-      const fp = fingerprint({ kind, message, stack });
+      const plain = fingerprint({ kind, message, stack });
+      const fp = o.scope ? scopedFingerprint(o.scope, plain) : plain;
       const runtime = normaliseRuntime(context.runtime);
       // A tenant id that is not a uuid would be refused by the event row's
       // own zod check (schema.ts: `tenantId: z.uuid().nullish()`) and would

@@ -57,9 +57,12 @@ function errorOf(report: ErrorReport, secret: string): Error {
 
 /**
  * Writes one batch through core's capture: per report, the same redaction
- * (`redactPii`, `heldSecrets` with the operator key added), the same
- * fingerprint and the same group upsert an app runs when it captures in
- * process, so a group keeps its fingerprint when the app moves to sending.
+ * (`redactPii`, `heldSecrets` with the operator key added), fingerprint and
+ * group upsert an app runs when it captures in process, with core's `scope`
+ * set from the key: a group's fingerprint is
+ * `sha256(site + "\n" + environment + "\n" + core fingerprint)` cut to 32
+ * hex, so two apps that throw the same way, or one app's production and
+ * stage, are separate groups. The timeline row carries the same value.
  * Site, environment and tenant come from the key; time from the report,
  * within `OCCURRED_AT_WINDOW_MS`; color and release from the report only,
  * never this host's own.
@@ -113,6 +116,9 @@ export async function ingestErrors(
           },
           release: null,
           redactEnvVars,
+          // Groups per site and environment: one company database holds
+          // every app's errors, and core's fingerprint names no app.
+          scope: { site: key.site, environment: key.environment },
         });
         capture(errorOf(report, secret), {
           runtime: report.runtime,

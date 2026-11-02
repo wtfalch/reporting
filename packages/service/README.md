@@ -8,8 +8,8 @@ mounts it.
 It is the shape of `wtfalch/analytics`' service, copied: site keys minted with
 an operator key, an ingest authenticated by site key, operator reads, and an
 append-only audit log. Capture, redaction, fingerprints and grouping are
-`@wtfalch/reporting-core`'s, unchanged, so an error keeps its fingerprint when
-an app moves from writing its own database to sending here.
+`@wtfalch/reporting-core`'s, with each group scoped to its site and
+environment (see below).
 
 ## Mounting it
 
@@ -65,10 +65,18 @@ or an error's text. It stores only the sha256 of a site key. It redacts
 again on ingest with core's `redactPii`, the operator key and KEYSTORE_*
 values (`heldSecrets`), and the presenting site key if a report quotes it.
 
-## One group per fingerprint
+## One group per site, environment and fingerprint
 
-Groups are core's: one row per fingerprint in the company's database. The
-same bug in an app's `production` and `stage` is one group, and the group's
-`environment` is the one it was seen in last. The list's `environment` filter
-matches that last value. The series counts the timeline rows, so it does
-tell the environments apart.
+A company's database holds every app's errors, and core's fingerprint
+(the kind and the top five normalised frames) names no app. So the ingest
+passes core's capture a `scope` from the site key, and a group's fingerprint
+is `sha256(site + "\n" + environment + "\n" + core fingerprint)`, cut to 32
+lower-case hex. Two apps that throw the same way are two groups, and so are
+one app's production and stage. The `error.*` timeline rows carry the same
+value, so `series?fingerprint=` counts only that group's rows. A fingerprint
+implies its environment, so `GET /v1/errors/:fingerprint` and `/state` take
+`site` only.
+
+An app that wrote its own database with the 1.x library has the plain core
+fingerprint. The same error has a different fingerprint here, and it starts a
+new group when the app moves to sending.

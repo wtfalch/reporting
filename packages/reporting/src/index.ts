@@ -26,6 +26,7 @@ export { errorDetail, setErrorState } from './errors/reader.js';
 // and group upsert `createReporting().captureError` runs, with the host
 // choosing the site, environment, time and where the timeline row goes.
 export { createCapture, type CaptureOptions } from './errors/capture.js';
+export { fingerprint, scopedFingerprint } from './errors/fingerprint.js';
 
 function modeFromEnv(): Mode {
   const env = process.env.NODE_ENV;

@@ -231,3 +231,23 @@ function bound(name: string): string {
   const trimmed = name.trim();
   return trimmed.length > 0 ? trimmed.slice(0, 100) : 'Error';
 }
+
+/**
+ * A fingerprint scoped to one site and environment:
+ * `sha256(site + "\n" + environment + "\n" + fingerprint)`, cut to 32
+ * lower-case hex like the fingerprint itself. A company's reporting backend
+ * holds every app's errors in one database, and the plain fingerprint names
+ * no app: two apps that throw the same way, or one app's production and
+ * stage, would be one group. The service passes `scope` to `createCapture`
+ * so each site and environment groups apart. An app writing its own
+ * database passes none and keeps the plain fingerprint.
+ */
+export function scopedFingerprint(
+  scope: { readonly site: string; readonly environment: string },
+  fp: string,
+): string {
+  return createHash('sha256')
+    .update(`${scope.site}\n${scope.environment}\n${fp}`)
+    .digest('hex')
+    .slice(0, 32);
+}
