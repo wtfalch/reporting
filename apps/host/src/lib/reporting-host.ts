@@ -1,11 +1,21 @@
 import type { Queryable } from '@wtfalch/db';
 import { withDrizzle } from '@wtfalch/db/drizzle';
-import { tables } from '@wtfalch/reporting-core';
+import { createReporting, tables } from '@wtfalch/reporting-core';
+import {
+  type Housekeeping,
+  createHousekeeping,
+  pruneErrors,
+  pruneEvents,
+  pruneOpenErrors,
+  retentionLag,
+} from '@wtfalch/reporting-core/housekeeping';
 import {
   type CreateReportingHandlerOptions,
   createReportingHandler,
   serviceTables,
 } from '@wtfalch/reporting-service';
+import { eq } from 'drizzle-orm';
+import { after } from 'next/server';
 import {
   type HostComposition,
   assertDevelopmentEnv,
@@ -38,6 +48,8 @@ export interface ReportingHostOptions
   extends Omit<CreateReportingHandlerOptions, 'db' | 'redactEnvVars'> {
   readonly db: CreateReportingHandlerOptions['db'];
   readonly database: Queryable;
+  /** Ticked after each `/api/health` answer. Unset in tests that do not need it. */
+  readonly housekeeping?: HealthTicker;
 }
 
 /** Reported under `checks[].name` for this host's one dependency. */
@@ -52,6 +64,20 @@ const HEALTH_QUERY_TIMEOUT_MS = 3_000;
  * string carries a password. `DATABASE_URL_OWNER` never reaches the server
  * (start.sh), so it has no value here to redact. */
 const HOST_SECRET_ENV = ['DATABASE_URL'];
+
+/** Reported as `site` on the host's own events and housekeeping rows. */
+const HOST_SITE = 'reporting-host';
+
+/** Event retention the host starts with (D3). Core's own default is 30. */
+const HOST_RETENTION_DAYS = 90;
+const RETENTION_KEY = 'events.retention_days';
+
+type HostDb = CreateReportingHandlerOptions['db'];
+
+/** What the health route needs from housekeeping: the tick. */
+export interface HealthTicker {
+  tick(): Promise<void>;
+}
 
 export interface HealthCheck {
   readonly name: string;
@@ -103,8 +129,19 @@ function isMaintenance(): boolean {
   return process.env.MAINTENANCE === 'true';
 }
 
-function healthHandler(database: Queryable): () => Promise<Response> {
+function healthHandler(database: Queryable, housekeeping?: HealthTicker): () => Promise<Response> {
   return async () => {
+    if (housekeeping) {
+      // After the response, so a slow prune never holds the health check. The
+      // tick does not throw; the catch is for a ticker that breaks that rule.
+      after(async () => {
+        try {
+          await housekeeping.tick();
+        } catch {
+          console.warn('reporting-host: housekeeping tick failed');
+        }
+      });
+    }
     const checks = [await checkDatabase(database)];
     const healthy = checks.every((check) => check.ok);
     const maintenance = isMaintenance();
@@ -131,19 +168,66 @@ function healthHandler(database: Queryable): () => Promise<Response> {
  * var or network call.
  */
 export function createReportingHost(options: ReportingHostOptions): ReportingHost {
-  const { database, ...handlerOptions } = options;
+  const { database, housekeeping, ...handlerOptions } = options;
   return {
     handleV1: guardedHandler(
       database,
       createReportingHandler({ ...handlerOptions, redactEnvVars: HOST_SECRET_ENV }),
     ),
-    handleHealth: healthHandler(database),
+    handleHealth: healthHandler(database, housekeeping),
   };
 }
 
 interface Store {
-  readonly db: CreateReportingHandlerOptions['db'];
+  readonly db: HostDb;
   readonly database: Queryable;
+  readonly housekeeping: Housekeeping;
+}
+
+const hostLog = {
+  info: () => undefined,
+  warn: () => console.warn('reporting-host: reporting warning'),
+  error: () => console.error('reporting-host: reporting error'),
+};
+
+/**
+ * Housekeeping for the host: the four prunes, with event retention set to 90
+ * days once. A row already in `reporting_settings` is never overwritten, so an
+ * operator's later change stands. The seed runs before the first tick and is
+ * retried on the next tick when it fails; the tick itself never throws.
+ */
+export function createHostHousekeeping(db: HostDb): Housekeeping {
+  const reporting = createReporting({ db, log: hostLog, site: HOST_SITE });
+  const core = createHousekeeping({ reporting, db });
+  for (const task of [pruneEvents, retentionLag, pruneErrors, pruneOpenErrors]) {
+    core.register(task);
+  }
+  let seeded: Promise<void> | undefined;
+  async function seedRetention(): Promise<void> {
+    const rows = await db
+      .select({ key: tables.settings.key })
+      .from(tables.settings)
+      .where(eq(tables.settings.key, RETENTION_KEY));
+    if (rows.length > 0) return;
+    await reporting.settings.set(
+      { [RETENTION_KEY]: HOST_RETENTION_DAYS },
+      { class: 'service', id: HOST_SITE },
+    );
+  }
+  return {
+    ...core,
+    async tick() {
+      try {
+        seeded ??= seedRetention();
+        await seeded;
+      } catch {
+        seeded = undefined;
+        console.warn('reporting-host: retention seed failed');
+        return;
+      }
+      await core.tick();
+    },
+  };
 }
 
 let store: Store | undefined;
@@ -156,7 +240,8 @@ function sharedStore(): Store {
     // One pool of 5: the service's Drizzle handle and the plain SQL the
     // health check and the role check run share it.
     const owner = openDatabase('reporting-host', 5);
-    store = { db: withDrizzle(owner, { schema: schemaTables }).orm, database: owner.database };
+    const db = withDrizzle(owner, { schema: schemaTables }).orm;
+    store = { db, database: owner.database, housekeeping: createHostHousekeeping(db) };
   }
   return store;
 }
@@ -165,7 +250,8 @@ function buildHost(composition: () => HostComposition): ReportingHost {
   // Composition first: a production host nobody configured refuses before it
   // touches the database.
   const injected = composition();
-  return createReportingHost({ ...sharedStore(), ...injected });
+  const { db, database, housekeeping } = sharedStore();
+  return createReportingHost({ db, database, housekeeping, ...injected });
 }
 
 /**
@@ -182,7 +268,8 @@ export function developmentHost(): ReportingHost {
  * production host still reports health before instrumentation has run.
  */
 export function sharedHealth(): () => Promise<Response> {
-  return healthHandler(sharedStore().database);
+  const { database, housekeeping } = sharedStore();
+  return healthHandler(database, housekeeping);
 }
 
 let instance: ReportingHost | undefined;
