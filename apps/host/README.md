@@ -45,6 +45,12 @@ screens.
   'database', ok }] }`, 200 or 503. The database check is the runtime-role
   check (cached once it has a verdict) and a fresh `select 1` with a 3 s
   deadline; a 503 never says why.
+- Each `/api/health` call also ticks core's housekeeping after the answer
+  (at most once a minute per process): `reporting.prune_events`,
+  `reporting.retention_lag`, `reporting.prune_errors` and
+  `reporting.prune_open_errors`. The first tick writes
+  `events.retention_days` = 90 if the table holds no row for it; an existing
+  row, whatever its value, is left alone.
 
 ## Migrations and the runtime role
 

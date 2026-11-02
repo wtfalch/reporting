@@ -19,6 +19,10 @@ vi.mock('@wtfalch/db/runtime-role', async (importOriginal) => ({
   },
 }));
 
+// `after` needs a Next request scope, which a direct route call has not got.
+// Housekeeping is housekeeping.test.ts's; here the callback is dropped.
+vi.mock('next/server', () => ({ after: () => undefined }));
+
 const OPERATOR_KEY = 'operator-key-for-the-test-0123456789';
 const ORGANISATION = '314159265358979323';
 const DATABASE_URL = 'postgres://reporting_rt:runtime-password-for-the-test@db.internal:5432/x';
