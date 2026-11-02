@@ -67,8 +67,13 @@ come from the key:
 
 The host redacts again on ingest with core's `redactPii` and its own secrets;
 the sender has redacted first (Candor FX's `cleanError` removes MT5 logins and
-passwords). Fingerprints and grouping are core's, unchanged, so a group keeps
-its fingerprint when an app moves from writing its own database to sending.
+passwords). Grouping is core's, scoped: one company backend holds every app and both
+environments, and core's fingerprint (the kind and the top five frames) names
+neither, so the service keys a group by `sha256(site, environment, core
+fingerprint)` cut to 32 hex. The same bug in two apps, or in an app's live and
+workspace copies, is two groups. A group's fingerprint therefore changes when
+an app moves from writing its own database to sending; its old record is not
+carried over.
 `Actor` is core's `{ class, id }`; Boule sends the person who pressed the
 button. Where in the app an error happened is the sender's to put in the
 message or the stack, as Candor FX's `cleanError` does: core has no column for
