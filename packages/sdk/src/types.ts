@@ -35,6 +35,9 @@ export interface ErrorReport {
 
 /** One error group, as a reader gets it. */
 export interface ErrorGroup {
+  /** 32 lower-case hex characters, scoped to the group's site and environment:
+   * the same error in another app, or in this app's other environment, is
+   * another group with another fingerprint. */
   fingerprint: string;
   site: string;
   environment: string;

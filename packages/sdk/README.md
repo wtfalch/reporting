@@ -12,8 +12,13 @@ and a browser with Fetch.
 `@wtfalch/reporting` 1.0.0 and 1.1.0 were the library that wrote to an app's
 own Postgres. That library is now the private `@wtfalch/reporting-core`, and
 this package is the client. An app moving from 1.x replaces its
-`captureError` with a sender; its groups keep their fingerprints, because the
-backend groups with the same code.
+`captureError` with a sender. The backend fingerprints with the same code but
+groups per site and environment, so an error's fingerprint there differs from
+the one the app stored itself, and its groups start afresh.
+
+A group's `fingerprint` is 32 lower-case hex characters and implies its site
+and environment. Two apps that throw the same way, or one app's production
+and stage, are separate groups.
 
 ## Sending errors (an app)
 
