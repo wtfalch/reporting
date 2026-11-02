@@ -1,4 +1,4 @@
-import { createTransport } from './transport.js';
+import { ReportingApiError, createTransport } from './transport.js';
 import type {
   ErrorGroup,
   ErrorSeries,
@@ -43,6 +43,22 @@ function iso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : value;
 }
 
+const FINGERPRINT = /^[0-9a-f]{32}$/;
+
+/** A fingerprint goes into the request path: anything but its documented 32
+ * lower-case hex characters (a `.` or a `..` segment, say) can make `new
+ * URL()` resolve the path to a different route than the one named here. */
+function checkFingerprint(fingerprint: string): string {
+  if (!FINGERPRINT.test(fingerprint)) {
+    throw new ReportingApiError(
+      0,
+      'invalid_request',
+      'fingerprint must be 32 lower-case hex characters',
+    );
+  }
+  return fingerprint;
+}
+
 /**
  * Reads a company's errors back, for Boule: the operator routes of the
  * contract. Every failure rejects with a `ReportingApiError` carrying the
@@ -70,17 +86,21 @@ export function createErrorReader(options: ErrorReaderOptions): ErrorReader {
           after: o.after,
         })}`,
       ),
-    get: (o) =>
+    get: async (o) =>
       call<ErrorGroup>(
         'GET',
-        `/v1/errors/${encodeURIComponent(o.fingerprint)}?${query({ site: o.site })}`,
+        `/v1/errors/${encodeURIComponent(checkFingerprint(o.fingerprint))}?${query({ site: o.site })}`,
       ),
-    setState: (input) =>
-      call<ErrorGroup>('POST', `/v1/errors/${encodeURIComponent(input.fingerprint)}/state`, {
-        site: input.site,
-        state: input.state,
-        by: { class: input.by.class, id: input.by.id },
-      }),
+    setState: async (input) =>
+      call<ErrorGroup>(
+        'POST',
+        `/v1/errors/${encodeURIComponent(checkFingerprint(input.fingerprint))}/state`,
+        {
+          site: input.site,
+          state: input.state,
+          by: { class: input.by.class, id: input.by.id },
+        },
+      ),
     series: (o) =>
       call<ErrorSeries>(
         'GET',

@@ -160,4 +160,36 @@ describe('createErrorReader', () => {
       message: 'The request timed out',
     });
   });
+
+  it('a response that stalls after its headers still times out', async () => {
+    const stalling = createErrorReader({
+      url: 'https://reporting.test',
+      operatorKey: 'k',
+      timeoutMs: 20,
+      // Headers arrive at once; the body stream never closes.
+      fetch: async () => new Response(new ReadableStream({ start() {} }), { status: 200 }),
+    });
+    await expect(stalling.list({ site: 'shop' })).rejects.toMatchObject({
+      status: 0,
+      code: 'unavailable',
+      message: 'The request timed out',
+    });
+  });
+
+  it('get and setState refuse a fingerprint that is not 32 lower-case hex characters, before any request', async () => {
+    const r = reader(() => Response.json(GROUP));
+    await expect(r.client.get({ site: 'shop', fingerprint: '..' })).rejects.toMatchObject({
+      status: 0,
+      code: 'invalid_request',
+    });
+    await expect(
+      r.client.setState({
+        site: 'shop',
+        fingerprint: '.',
+        state: 'open',
+        by: { class: 'human', id: 'u1' },
+      }),
+    ).rejects.toMatchObject({ status: 0, code: 'invalid_request' });
+    expect(r.fetcher).not.toHaveBeenCalled();
+  });
 });
