@@ -124,7 +124,14 @@ export function errorName(error: unknown): string {
  * guaranteed to tie its `Response`'s body stream to the signal it was given,
  * so the timeout cannot rely on that happening by itself. */
 function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(new Error('aborted'));
+  if (signal.aborted) {
+    // We're already rejecting below; `promise`'s own outcome no longer
+    // matters, but it still must be observed -- otherwise, when it settles
+    // on its own (most likely a rejection, for a request that is being
+    // abandoned), it becomes an unhandled rejection.
+    promise.catch(() => undefined);
+    return Promise.reject(new Error('aborted'));
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(new Error('aborted'));
     signal.addEventListener('abort', onAbort, { once: true });

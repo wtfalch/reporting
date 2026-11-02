@@ -176,6 +176,45 @@ describe('createErrorReader', () => {
     });
   });
 
+  it('a fetch that ignores the signal and resolves after the timeout does not leave an unhandled rejection', async () => {
+    const seen: unknown[] = [];
+    const onUnhandled = (reason: unknown) => seen.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const client = createErrorReader({
+        url: 'https://reporting.test',
+        operatorKey: 'k',
+        timeoutMs: 10,
+        // Never looks at init.signal: resolves normally well after the
+        // timeout has already fired, with a body read that later rejects
+        // on its own.
+        fetch: () =>
+          new Promise((resolve) => {
+            setTimeout(() => {
+              resolve({
+                status: 200,
+                ok: true,
+                json: () =>
+                  new Promise((_resolve, reject) => {
+                    setTimeout(() => reject(new Error('body parse blew up')), 10);
+                  }),
+              } as unknown as Response);
+            }, 40);
+          }),
+      });
+      await expect(client.list({ site: 'shop' })).rejects.toMatchObject({
+        status: 0,
+        code: 'unavailable',
+        message: 'The request timed out',
+      });
+      // Give the abandoned body-read promise time to settle.
+      await new Promise((r) => setTimeout(r, 30));
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+    expect(seen).toEqual([]);
+  });
+
   it('get and setState refuse a fingerprint that is not 32 lower-case hex characters, before any request', async () => {
     const r = reader(() => Response.json(GROUP));
     await expect(r.client.get({ site: 'shop', fingerprint: '..' })).rejects.toMatchObject({
