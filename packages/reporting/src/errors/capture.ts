@@ -343,7 +343,7 @@ export function createCapture(o: CaptureOptions) {
         stack,
         runtime,
         release,
-        color: deployTags().color,
+        color: context.color !== undefined ? context.color : deployTags().color,
         environment,
         tenantId,
         requestId,

@@ -683,3 +683,34 @@ describe('two tenants hitting one fingerprint', () => {
     expect(left[0]?.n).toBe(0);
   });
 });
+
+describe('captureError() color', () => {
+  it("stamps the context's color over the process's own, and null when the context says null", async () => {
+    await reset();
+    const previous = process.env.REPORTING_COLOR;
+    process.env.REPORTING_COLOR = 'blue';
+    try {
+      const h = deferHarness();
+      const r = createReporting({
+        db: t.db,
+        log: memoryLog(),
+        site: 'test',
+        mode: 'test',
+        defer: h.defer,
+      });
+      r.captureError(new RangeError('from green'), { color: 'green' });
+      r.captureError(new SyntaxError('no color'), { color: null });
+      r.captureError(new EvalError('host color'));
+      await h.drain();
+      const rows = await t.query('select kind, color from reporting_errors order by kind');
+      expect(rows).toEqual([
+        { kind: 'EvalError', color: 'blue' },
+        { kind: 'RangeError', color: 'green' },
+        { kind: 'SyntaxError', color: null },
+      ]);
+    } finally {
+      if (previous === undefined) Reflect.deleteProperty(process.env, 'REPORTING_COLOR');
+      else process.env.REPORTING_COLOR = previous;
+    }
+  });
+});
