@@ -24,9 +24,10 @@ this plan says "as analytics", the analytics file is the reference
 
 One host per company: `https://reporting.<domain>`, or
 `https://<slug>-reporting.oikos.host` for a company without a domain. Every
-body is JSON; every failure is `{ code, message }` (`invalid_request`,
-`unauthorized`, `forbidden`, `not_found`, `unavailable`), as the SDK's
-`ReportingError` already types.
+body is JSON; every failure is `@wtfalch/contracts`' `serviceErrorResponse`,
+`{ error: { code, message } }` with its status per code, as analytics answers
+(`invalid_request` 400, `unauthorized` 401, `forbidden` 403, `not_found` 404,
+`not_configured` 503, `rate_limited` 429, `unavailable` 503).
 
 **Credentials.** `REPORTING_OPERATOR_KEY` on the host, compared in constant
 time (both sides hashed, then `timingSafeEqual`); unset or empty refuses
