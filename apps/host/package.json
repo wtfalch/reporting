@@ -1,0 +1,31 @@
+{
+  "name": "@wtfalch/reporting-host",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:migrate": "node scripts/migrate.mjs"
+  },
+  "dependencies": {
+    "@wtfalch/db": "0.5.2",
+    "@wtfalch/reporting-core": "workspace:*",
+    "@wtfalch/reporting-service": "workspace:*",
+    "@wtfalch/utils": "0.1.0",
+    "drizzle-orm": "0.39.3",
+    "next": "^16.2.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.6"
+  }
+}
