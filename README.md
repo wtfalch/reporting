@@ -53,5 +53,9 @@ it.
 - `packages/reporting` is `@wtfalch/reporting-core`, private and never
   published. The library 1.0.0 and 1.1.0 shipped under the name
   `@wtfalch/reporting`; this package keeps that code for the backend.
+- `apps/host` is `@wtfalch/reporting-host`, private: the Next app foundry
+  deploys once per company. It mounts the service at `/v1/*`, migrates with
+  the owner credential and serves as a checked runtime role. Its README lists
+  the environment; the root `Dockerfile` builds its image.
 
 `docs/adr/0002-one-backend-and-app-per-company.md` has the decision.
