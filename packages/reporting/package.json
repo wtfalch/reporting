@@ -65,6 +65,9 @@
   "peerDependenciesMeta": {
     "next": {
       "optional": true
+    },
+    "react": {
+      "optional": true
     }
   },
   "devDependencies": {
