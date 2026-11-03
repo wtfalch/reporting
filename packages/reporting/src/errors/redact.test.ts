@@ -249,6 +249,19 @@ describe('redactPii: more credential shapes', () => {
     expect(redactPii('Cookie: a=b\nnext line')).toBe('Cookie: [redacted: cookie]\nnext line');
   });
 
+  describe('a labelled secret still has to look like one', () => {
+    it('keeps the next word when it is ordinary prose, not a value', () => {
+      expect(redactPii('invalid token: expected')).toBe('invalid token: expected');
+      expect(redactPii('secret: missing')).toBe('secret: missing');
+    });
+
+    it('still redacts an opaque value after the colon or equals form', () => {
+      const hex = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
+      expect(redactPii(`token: ${hex}`)).toBe('token: [redacted: secret]');
+      expect(redactPii(`token=${hex}`)).toBe('token=[redacted: secret]');
+    });
+  });
+
   const formCases: [string, string, string][] = [
     ['postgres URL password', 'connect postgresql://u:pw@10.0.0.1/db failed', 'pw'],
     ['URL password with dotted host', 'redis://admin:s3cr3t@cache.example.com:6379', 's3cr3t'],
