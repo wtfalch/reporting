@@ -24,7 +24,19 @@ export interface AlertRuleAuditEvent {
   readonly by: Actor;
 }
 
-export type AuditEvent = SiteKeyAuditEvent | StateAuditEvent | AlertRuleAuditEvent;
+/** An operator recording when a release went up on a site's environment. */
+export interface ReleaseAuditEvent {
+  readonly operation: 'release.recorded';
+  readonly site: string;
+  readonly environment: string;
+  readonly release: string;
+}
+
+export type AuditEvent =
+  | SiteKeyAuditEvent
+  | StateAuditEvent
+  | AlertRuleAuditEvent
+  | ReleaseAuditEvent;
 
 /**
  * One row in the append-only `audit_events` table. The handler always passes
@@ -44,6 +56,16 @@ export async function writeAudit(
       site: event.site,
       actorClass: event.by.class,
       actorId: event.by.id,
+    });
+    return;
+  }
+  if (event.operation === 'release.recorded') {
+    await db.insert(auditEvents).values({
+      operation: event.operation,
+      tenantId,
+      site: event.site,
+      environment: event.environment,
+      release: event.release,
     });
     return;
   }

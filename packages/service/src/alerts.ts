@@ -294,16 +294,32 @@ export async function saveAlertRules(
   return readAlertRules(db, input.site);
 }
 
-/** Records when a release went up; a repeat of the same release moves its time. */
-export async function recordRelease(db: Db, input: ReleaseInput, now: Date): Promise<void> {
+/**
+ * Records when a release went up; a repeat of the same release moves its time.
+ * The audit row commits with the write, so a failed write leaves none.
+ */
+export async function recordRelease(
+  db: Db,
+  tenantId: string | null,
+  input: ReleaseInput,
+  now: Date,
+): Promise<void> {
   const since = new Date(input.since);
-  await db
-    .insert(reportingReleases)
-    .values({ ...input, since, updatedAt: now })
-    .onConflictDoUpdate({
-      target: [reportingReleases.site, reportingReleases.environment, reportingReleases.release],
-      set: { since, updatedAt: now },
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(reportingReleases)
+      .values({ ...input, since, updatedAt: now })
+      .onConflictDoUpdate({
+        target: [reportingReleases.site, reportingReleases.environment, reportingReleases.release],
+        set: { since, updatedAt: now },
+      });
+    await writeAudit(tx, tenantId, {
+      operation: 'release.recorded',
+      site: input.site,
+      environment: input.environment,
+      release: input.release,
     });
+  });
 }
 
 /**

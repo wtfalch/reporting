@@ -647,6 +647,7 @@ describe('routes and the stores', () => {
       '0001_site_keys.sql',
       '0002_audit_events.sql',
       '0003_alerts.sql',
+      '0004_release_audit.sql',
     ]);
   });
 });

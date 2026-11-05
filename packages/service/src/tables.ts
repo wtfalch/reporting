@@ -31,6 +31,8 @@ export const auditEvents = pgTable('audit_events', {
   keyId: text('key_id'),
   fingerprint: text('fingerprint'),
   state: text('state'),
+  environment: text('environment'),
+  release: text('release'),
   actorClass: text('actor_class'),
   actorId: text('actor_id'),
 });

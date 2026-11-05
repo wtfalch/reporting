@@ -208,7 +208,7 @@ export function createReportingHandler(
     ) {
       throw new ServiceError('invalid_request', 'Invalid release');
     }
-    await recordRelease(db, parsed.data, at);
+    await recordRelease(db, tenantId, parsed.data, at);
     return jsonResponse({ ...parsed.data, since: new Date(parsed.data.since).toISOString() });
   }
 

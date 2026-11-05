@@ -8,6 +8,7 @@ import {
   baselineOf,
   createAlerts,
   newKindMail,
+  recordRelease,
 } from './alerts.js';
 import { createReportingHandler } from './server.js';
 import { tenantIdOf } from './site-keys.js';
@@ -295,6 +296,44 @@ describe('the alert-rules routes', () => {
       since: '2026-11-11T10:00:00Z',
     });
     expect(later.status).toBe(400);
+  });
+
+  it('writes one audit row with site, environment and release, and none when the write fails', async () => {
+    const before = await t.query(
+      "select count(*)::int as n from audit_events where operation = 'release.recorded'",
+    );
+    await call('POST', '/v1/releases', {
+      site: 'shop',
+      environment: 'stage',
+      release: '2.4',
+      since: '2026-11-10T10:00:00Z',
+    });
+    const rows = await t.query(
+      "select operation, site, environment, release, tenant_id, key_id, fingerprint from audit_events where operation = 'release.recorded' order by id desc",
+    );
+    expect(rows).toHaveLength(Number(before[0]?.n) + 1);
+    expect(rows[0]).toEqual({
+      operation: 'release.recorded',
+      site: 'shop',
+      environment: 'stage',
+      release: '2.4',
+      tenant_id: TENANT,
+      key_id: null,
+      fingerprint: null,
+    });
+    // A write the database refuses (a release name past its 128 limit) leaves no audit row.
+    await expect(
+      recordRelease(
+        t.db,
+        TENANT,
+        { site: 'shop', environment: 'stage', release: 'x'.repeat(200), since: '2026-11-10T10:00:00Z' },
+        clock,
+      ),
+    ).rejects.toThrow();
+    const after = await t.query(
+      "select count(*)::int as n from audit_events where operation = 'release.recorded'",
+    );
+    expect(after[0]?.n).toBe(rows.length);
   });
 });
 
