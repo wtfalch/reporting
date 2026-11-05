@@ -13,7 +13,7 @@ import {
   reportingEvents,
   setErrorState,
 } from '@wtfalch/reporting-core';
-import { and, eq, gte, like, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, like, lt, sql } from 'drizzle-orm';
 import { writeAudit } from './audit.js';
 import { ServiceError } from './errors.js';
 import {
@@ -42,8 +42,39 @@ function actorOf(resolvedBy: string | null): Actor | null {
   return { class: cls as Actor['class'], id: resolvedBy.slice(at + 1) };
 }
 
+/**
+ * Different people per group, from the `person` hash on its `error.*`
+ * timeline rows (ingest.ts, `personHash`). A group none of whose rows names
+ * a person is absent, which the caller reads as `null`.
+ */
+export async function peopleOf(
+  db: Db,
+  site: string,
+  fingerprints: readonly string[],
+): Promise<Map<string, number>> {
+  if (fingerprints.length === 0) return new Map();
+  const fp = sql<string>`${reportingEvents.data}->>'fingerprint'`;
+  const rows = await db
+    .select({
+      fingerprint: fp,
+      n: sql<number>`count(distinct ${reportingEvents.data}->>'person')::int`.mapWith(Number),
+    })
+    .from(reportingEvents)
+    .where(
+      and(
+        eq(reportingEvents.level, 'error'),
+        like(reportingEvents.kind, 'error.%'),
+        eq(reportingEvents.site, site),
+        inArray(fp, [...fingerprints]),
+        sql`${reportingEvents.data} ? 'person'`,
+      ),
+    )
+    .groupBy(fp);
+  return new Map(rows.map((r) => [r.fingerprint, r.n]));
+}
+
 /** A stored group as the contract's `ErrorGroup`. Color and the tenant stay in. */
-export function toErrorGroup(row: ReportingErrorRow): ErrorGroup {
+export function toErrorGroup(row: ReportingErrorRow, people: number | null = null): ErrorGroup {
   return {
     fingerprint: row.fingerprint,
     site: row.site,
@@ -60,6 +91,7 @@ export function toErrorGroup(row: ReportingErrorRow): ErrorGroup {
     state: row.state as ErrorState,
     resolvedAt: row.resolvedAt ? new Date(row.resolvedAt).toISOString() : null,
     resolvedBy: actorOf(row.resolvedBy),
+    people,
   };
 }
 
@@ -110,8 +142,14 @@ export async function listErrors(db: Db, o: ListOptions): Promise<ErrorsList> {
     limit: o.limit ?? LIST_LIMIT.default,
     after: o.after === undefined ? undefined : decodeCursor(o.after),
   });
+  const items = page.items as readonly ReportingErrorRow[];
+  const people = await peopleOf(
+    db,
+    o.site,
+    items.map((row) => row.fingerprint),
+  );
   return {
-    items: (page.items as readonly ReportingErrorRow[]).map(toErrorGroup),
+    items: items.map((row) => toErrorGroup(row, people.get(row.fingerprint) ?? null)),
     next: page.next ? encodeCursor(page.next) : null,
   };
 }
@@ -124,7 +162,9 @@ export async function getError(
 ): Promise<ErrorGroup | null> {
   if (!FINGERPRINT_PATTERN.test(fingerprint)) return null;
   const row = await errorDetail(db, fingerprint);
-  return row && row.site === site ? toErrorGroup(row) : null;
+  if (!row || row.site !== site) return null;
+  const people = await peopleOf(db, site, [fingerprint]);
+  return toErrorGroup(row, people.get(fingerprint) ?? null);
 }
 
 /**
@@ -150,7 +190,8 @@ export async function setState(
       state: input.state,
       by: input.by,
     });
-    return toErrorGroup(row);
+    const people = await peopleOf(tx, input.site, [input.fingerprint]);
+    return toErrorGroup(row, people.get(input.fingerprint) ?? null);
   });
 }
 

@@ -30,6 +30,9 @@ export async function register(): Promise<void> {
   if (!organisationId) {
     warn('AUTH_ORGANIZATION_ID', 'minting a site key will answer 503 not_configured');
   }
+  if (!process.env.MAIL_FROM || !(process.env.MAIL_SINK_URL || process.env.LETTERMINT_API_TOKEN)) {
+    warn('MAIL_FROM', 'with it, MAIL_SINK_URL or LETTERMINT_API_TOKEN: no error emails are sent');
+  }
   configureProductionComposition({
     operatorKey: process.env.REPORTING_OPERATOR_KEY,
     tenantId: organisationId ? tenantIdOf(organisationId) : undefined,

@@ -1,6 +1,6 @@
 {
   "name": "@wtfalch/reporting-service",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "@wtfalch/contracts": "0.2.0",
+    "@wtfalch/mailer": "0.9.0",
     "@wtfalch/reporting-core": "workspace:*",
     "drizzle-orm": "0.39.3",
     "zod": "^4.5.4"

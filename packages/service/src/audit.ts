@@ -17,7 +17,14 @@ export interface StateAuditEvent {
   readonly by: Actor;
 }
 
-export type AuditEvent = SiteKeyAuditEvent | StateAuditEvent;
+/** An operator saving a site's error-email rules, with who saved them. */
+export interface AlertRuleAuditEvent {
+  readonly operation: 'alert_rule.set';
+  readonly site: string;
+  readonly by: Actor;
+}
+
+export type AuditEvent = SiteKeyAuditEvent | StateAuditEvent | AlertRuleAuditEvent;
 
 /**
  * One row in the append-only `audit_events` table. The handler always passes
@@ -30,6 +37,16 @@ export async function writeAudit(
   tenantId: string | null,
   event: AuditEvent,
 ): Promise<void> {
+  if (event.operation === 'alert_rule.set') {
+    await db.insert(auditEvents).values({
+      operation: event.operation,
+      tenantId,
+      site: event.site,
+      actorClass: event.by.class,
+      actorId: event.by.id,
+    });
+    return;
+  }
   await db.insert(auditEvents).values(
     event.operation === 'error.state'
       ? {

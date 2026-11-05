@@ -17,6 +17,9 @@ importers:
       '@wtfalch/db':
         specifier: 0.5.2
         version: 0.5.2(@electric-sql/pglite@0.5.8)(drizzle-orm@0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9))
+      '@wtfalch/mailer':
+        specifier: 0.9.0
+        version: 0.9.0
       '@wtfalch/reporting-core':
         specifier: workspace:*
         version: link:../../packages/reporting
@@ -111,6 +114,9 @@ importers:
       '@wtfalch/contracts':
         specifier: 0.2.0
         version: 0.2.0
+      '@wtfalch/mailer':
+        specifier: 0.9.0
+        version: 0.9.0
       '@wtfalch/reporting-core':
         specifier: workspace:*
         version: link:../reporting
@@ -565,6 +571,10 @@ packages:
         optional: true
       drizzle-orm:
         optional: true
+
+  '@wtfalch/mailer@0.9.0':
+    resolution: {integrity: sha512-R4g89z+1H2cgcDsxqHF4oi8eCbD4c7Mye65DW6D91jIYP6quWqpx0Jt4Z3sNw041uJ+lNQVw6y3IBrWpDWdIrQ==}
+    engines: {node: '>=22.0.0'}
 
   '@wtfalch/utils@0.1.0':
     resolution: {integrity: sha512-ofvjquhSN7oKpkJ/A5nB3gdCauIldu/VTocKnePGxEL1qgjiZWZ1pkK3nV9lkqX0JEwTMiiuuNlmaTvY/3NN/Q==}
@@ -1318,6 +1328,10 @@ snapshots:
     optionalDependencies:
       '@electric-sql/pglite': 0.5.8
       drizzle-orm: 0.39.3(@electric-sql/pglite@0.5.8)(postgres@3.4.9)
+
+  '@wtfalch/mailer@0.9.0':
+    dependencies:
+      '@wtfalch/utils': 0.1.0
 
   '@wtfalch/utils@0.1.0': {}
 

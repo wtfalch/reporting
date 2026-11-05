@@ -62,6 +62,9 @@ describe('guardedHandler', () => {
       appendOnly: ['reporting.audit_events', 'reporting.reporting_events'],
       noDelete: [
         'reporting.reporting_site_keys',
+        'reporting.reporting_alert_rules',
+        'reporting.reporting_releases',
+        'reporting.reporting_alerts',
         'reporting.reporting_tasks',
         'reporting.reporting_settings',
         'reporting.reporting_errors',

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@wtfalch/db": "0.5.2",
+    "@wtfalch/mailer": "0.9.0",
     "@wtfalch/reporting-core": "workspace:*",
     "@wtfalch/reporting-service": "workspace:*",
     "@wtfalch/utils": "0.1.0",
