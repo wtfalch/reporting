@@ -146,6 +146,27 @@ describe('createErrorSender', () => {
     expect(h.lines.join('\n')).not.toContain('secret');
   });
 
+  it('sends person from a report and from a capture context', async () => {
+    const h = harness();
+    await h.sender.send({ message: 'boom', runtime: 'edge', person: 'u-1' });
+    await h.sender.capture(new Error('bang'), { person: 'sess-2' });
+    const sent = h.bodies().flatMap((b) => b.errors);
+    expect(sent.map((r) => r.person)).toEqual(['u-1', 'sess-2']);
+  });
+
+  it('drops a person that is empty, over 256 characters or not a string, and still sends the report', async () => {
+    const h = harness();
+    await h.sender.send({ message: 'a', runtime: 'server', person: '' });
+    await h.sender.send({ message: 'b', runtime: 'server', person: 'x'.repeat(257) });
+    // biome-ignore lint/suspicious/noExplicitAny: a caller outside TypeScript
+    await h.sender.send({ message: 'c', runtime: 'server', person: 42 as any });
+    await h.sender.send({ message: 'd', runtime: 'server', person: 'y'.repeat(256) });
+    const sent = h.bodies().flatMap((b) => b.errors);
+    expect(sent.map((r) => r.message)).toEqual(['a', 'b', 'c', 'd']);
+    for (const r of sent.slice(0, 3)) expect(Object.keys(r)).not.toContain('person');
+    expect(sent[3]?.person).toBe('y'.repeat(256));
+  });
+
   it('drops a report with no message or a bad runtime, and a bad url, without throwing', async () => {
     const h = harness();
     await h.sender.send({ message: '', runtime: 'server' });

@@ -29,6 +29,8 @@ export interface ErrorReport {
   release?: string;
   color?: DeployColor;
   requestId?: string;
+  /** The signed-in person's issuer id or a session id (1-256 characters); the backend stores only a hash. Never an email or a name. */
+  person?: string;
   /** ISO time. The sender stamps the time of `send` when absent. */
   occurredAt?: string;
 }
@@ -53,6 +55,9 @@ export interface ErrorGroup {
   state: ErrorState;
   resolvedAt: string | null;
   resolvedBy: Actor | null;
+  /** How many different people hit it, from the reports that named a `person`
+   * and are still within event retention; `null` when none of them named one. */
+  people: number | null;
 }
 
 /** `GET /v1/errors`: newest `lastSeenAt` first. `next` is an opaque cursor, or null on the last page. */
