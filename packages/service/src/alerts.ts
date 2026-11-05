@@ -1,7 +1,7 @@
 import { type Transport, layout, mailButton, mailHeading, mailText } from '@wtfalch/mailer';
 import { type Actor, type Db, actorSchema, reportingErrors } from '@wtfalch/reporting-core';
 import { reportingEvents } from '@wtfalch/reporting-core';
-import { and, desc, eq, gte, like, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, like, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { writeAudit } from './audit.js';
 import { type Logger, errorName } from './log.js';
@@ -647,11 +647,27 @@ export function createAlerts(options: CreateAlertsOptions): Alerts {
     const due = sql`${reportingAlerts.attempts} < ${ALERT_LIMITS.attempts} and (
       (${reportingAlerts.status} = 'failed' and ${reportingAlerts.attemptedAt} < ${failedBefore.toISOString()}::timestamptz)
       or (${reportingAlerts.status} = 'sending' and ${reportingAlerts.attemptedAt} < ${staleBefore.toISOString()}::timestamptz))`;
-    const rows = await db.select().from(reportingAlerts).where(due).limit(20);
+    // The oldest attempt first: a mail never tried before comes before one tried lately.
+    const rows = await db
+      .select()
+      .from(reportingAlerts)
+      .where(due)
+      .orderBy(asc(reportingAlerts.attemptedAt), asc(reportingAlerts.id))
+      .limit(20);
     const taken: AlertRowT[] = [];
     for (const row of rows) {
-      // A rule turned off since is not tried again.
-      if (!rules.has(`${row.site}/${row.environment}/${row.kind}`)) continue;
+      if (!rules.has(`${row.site}/${row.environment}/${row.kind}`)) {
+        // A rule turned off since is not tried again, and must not hold a slot of the queue.
+        await db
+          .update(reportingAlerts)
+          .set({ status: 'dropped' })
+          .where(and(eq(reportingAlerts.id, row.id), due));
+        log.info(
+          { kind: row.kind, site: row.site, environment: row.environment },
+          'reporting: alert mail dropped, its rule is off',
+        );
+        continue;
+      }
       const [again] = await db
         .update(reportingAlerts)
         .set({

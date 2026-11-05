@@ -326,7 +326,12 @@ describe('the alert-rules routes', () => {
       recordRelease(
         t.db,
         TENANT,
-        { site: 'shop', environment: 'stage', release: 'x'.repeat(200), since: '2026-11-10T10:00:00Z' },
+        {
+          site: 'shop',
+          environment: 'stage',
+          release: 'x'.repeat(200),
+          since: '2026-11-10T10:00:00Z',
+        },
         clock,
       ),
     ).rejects.toThrow();
@@ -453,6 +458,38 @@ describe('a new kind of error', () => {
       attempts: ALERT_LIMITS.attempts,
       delivered: ['ok@acme.example'],
     });
+  });
+
+  it('failed mails of a rule that is off leave the queue and do not starve other rules', async () => {
+    await rules({
+      site: 'shop',
+      rules: [rule('production', 'new_kind', ['a@acme.example'])],
+      by: BY,
+    });
+    clock = new Date(clock.getTime() + MINUTE);
+    await report('production', [{ kind: 'TypeError', message: 'one', runtime: 'server' }]);
+    mail.refuse.add('a@acme.example');
+    const a = alerts();
+    expect(await a.tick()).toEqual({ sent: 0, failed: 1 });
+    // 20 failed mails of a rule that is off (no stage rule exists), all older than the live one.
+    const old = new Date(clock.getTime() - 2 * DAY).toISOString();
+    for (let i = 1; i <= 20; i++) {
+      await t.exec(
+        `insert into reporting_alerts (site, environment, kind, subject, recipients, status, attempts, attempted_at)
+         values ('shop', 'stage', 'went_up', 'r${i}', '{x@acme.example}', 'failed', 1, '${old}')`,
+      );
+    }
+    mail.refuse.clear();
+    clock = new Date(clock.getTime() + ALERT_LIMITS.retryAfterMs + MINUTE);
+    // This tick clears the 20 out of the queue; the live mail is retried at the next one.
+    await a.tick();
+    const dropped = await t.query("select subject from reporting_alerts where status = 'dropped'");
+    expect(dropped).toHaveLength(20);
+    expect(
+      log.lines.filter((l) => l.msg === 'reporting: alert mail dropped, its rule is off'),
+    ).toHaveLength(20);
+    expect(await a.tick()).toEqual({ sent: 1, failed: 0 });
+    expect(mail.sent.map((m) => m.to)).toEqual(['a@acme.example']);
   });
 
   it('a retry that succeeds marks the mail sent', async () => {
