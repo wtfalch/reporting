@@ -1,5 +1,9 @@
 node_modules
 dist
+.next
 .pnpm-store
 *.tgz
+*.tsbuildinfo
+.env
+.env.local
 .claude/campaign/
