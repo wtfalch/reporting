@@ -16,9 +16,14 @@ export const APPEND_ONLY = ['audit_events', 'reporting_events'];
 
 /** Insert and update, never delete: DELETE and TRUNCATE are revoked every
  * run. The service's site keys (a revoke stamps `revoked_at`; nothing deletes
- * a key) and core's six tables. */
+ * a key), its alert rules, releases and sent alerts (a rule turned off is a
+ * row with `enabled` false; a mail's row is what keeps it from going twice),
+ * and core's six tables. */
 export const NO_DELETE = [
   'reporting_site_keys',
+  'reporting_alert_rules',
+  'reporting_releases',
+  'reporting_alerts',
   'reporting_tasks',
   'reporting_settings',
   'reporting_errors',

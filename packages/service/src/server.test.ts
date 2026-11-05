@@ -92,6 +92,41 @@ async function onlyGroup(site = 'shop') {
 }
 
 describe('POST /v1/errors', () => {
+  it('counts different people per group, keeping only a hash of who', async () => {
+    const r = (person?: string) => ({
+      kind: 'TypeError',
+      message: 'cannot read x',
+      runtime: 'server',
+      ...(person ? { person } : {}),
+    });
+    expect((await send(shopKey, [r('user-1'), r('user-1'), r('user-2'), r()])).status).toBe(202);
+    // The same people in the workspace are another group with its own count.
+    expect((await send(shopStageKey, [r('user-1')])).status).toBe(202);
+    // A group no report named a person for counts as unknown, not zero.
+    expect(
+      (await send(shopKey, [{ kind: 'RangeError', message: 'far', runtime: 'server' }])).status,
+    ).toBe(202);
+    const live = (await (await get('/v1/errors?site=shop&environment=production')).json()) as {
+      items: { kind: string; fingerprint: string; people: number | null }[];
+    };
+    const byKind = Object.fromEntries(live.items.map((g) => [g.kind, g.people]));
+    expect(byKind).toEqual({ TypeError: 2, RangeError: null });
+    const stage = (await (await get('/v1/errors?site=shop&environment=stage')).json()) as {
+      items: { people: number | null }[];
+    };
+    expect(stage.items.map((g) => g.people)).toEqual([1]);
+    const type = live.items.find((g) => g.kind === 'TypeError');
+    const one = (await (await get(`/v1/errors/${type?.fingerprint}?site=shop`)).json()) as {
+      people: number;
+    };
+    expect(one.people).toBe(2);
+    const stored = JSON.stringify(await t.query('select data from reporting_events'));
+    expect(stored).not.toContain('user-1');
+    expect(stored).toMatch(/"person":"[0-9a-f]{32}"/);
+    const tooLong = await send(shopKey, [r('x'.repeat(257))]);
+    expect(tooLong.status).toBe(400);
+  });
+
   it('answers 202 { accepted } and writes a group and an error.* timeline row', async () => {
     const res = await send(shopKey, [
       {
@@ -123,6 +158,7 @@ describe('POST /v1/errors', () => {
       state: 'open',
       resolvedAt: null,
       resolvedBy: null,
+      people: null,
     });
     expect(Object.keys(group).sort()).toEqual(
       [
@@ -141,6 +177,7 @@ describe('POST /v1/errors', () => {
         'state',
         'resolvedAt',
         'resolvedBy',
+        'people',
       ].sort(),
     );
     const [row] = await t.query('select color, tenant_id from reporting_errors');
@@ -609,6 +646,7 @@ describe('routes and the stores', () => {
     expect(rows.filter((r) => r.source === 'reporting-service').map((r) => r.filename)).toEqual([
       '0001_site_keys.sql',
       '0002_audit_events.sql',
+      '0003_alerts.sql',
     ]);
   });
 });

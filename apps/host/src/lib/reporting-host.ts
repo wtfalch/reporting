@@ -10,12 +10,16 @@ import {
   retentionLag,
 } from '@wtfalch/reporting-core/housekeeping';
 import {
+  type Alerts,
   type CreateReportingHandlerOptions,
+  consoleLogger,
+  createAlerts,
   createReportingHandler,
   serviceTables,
 } from '@wtfalch/reporting-service';
 import { eq } from 'drizzle-orm';
 import { after } from 'next/server';
+import { alertMailFromEnv } from './alert-mail';
 import {
   type HostComposition,
   assertDevelopmentEnv,
@@ -45,11 +49,14 @@ export interface ReportingHost {
  * the plain SQL handle over the same pool (the role check and the health
  * query), and the service's own options. */
 export interface ReportingHostOptions
-  extends Omit<CreateReportingHandlerOptions, 'db' | 'redactEnvVars'> {
+  extends Omit<CreateReportingHandlerOptions, 'db' | 'redactEnvVars' | 'afterIngest'> {
   readonly db: CreateReportingHandlerOptions['db'];
   readonly database: Queryable;
   /** Ticked after each `/api/health` answer. Unset in tests that do not need it. */
   readonly housekeeping?: HealthTicker;
+  /** The error emails, ticked after each `/api/health` answer and after each
+   * accepted batch. Unset in tests that do not need it. */
+  readonly alerts?: Pick<Alerts, 'tick'>;
 }
 
 /** Reported under `checks[].name` for this host's one dependency. */
@@ -63,7 +70,7 @@ const HEALTH_QUERY_TIMEOUT_MS = 3_000;
  * service's own (the operator key and KEYSTORE_*): the runtime connection
  * string carries a password. `DATABASE_URL_OWNER` never reaches the server
  * (start.sh), so it has no value here to redact. */
-const HOST_SECRET_ENV = ['DATABASE_URL'];
+const HOST_SECRET_ENV = ['DATABASE_URL', 'LETTERMINT_API_TOKEN'];
 
 /** Reported as `site` on the host's own events and housekeeping rows. */
 const HOST_SITE = 'reporting-host';
@@ -129,12 +136,44 @@ function isMaintenance(): boolean {
   return process.env.MAINTENANCE === 'true';
 }
 
-function healthHandler(database: Queryable, housekeeping?: HealthTicker): () => Promise<Response> {
+/**
+ * Next's `after`, or the work at once without waiting when there is no
+ * request scope to run it after (a route called outside Next, as
+ * `scripts/migrate.test.ts` does): `after` throws there, and a health answer
+ * or an accepted batch must not fail for it.
+ */
+function later(work: () => Promise<void>): void {
+  try {
+    after(work);
+  } catch {
+    void work();
+  }
+}
+
+/** After the response, so a slow send never holds an answer. The tick does not
+ * throw; the catch is for one that breaks that rule. */
+function tickAlerts(alerts: Pick<Alerts, 'tick'> | undefined): void {
+  if (!alerts) return;
+  later(async () => {
+    try {
+      await alerts.tick();
+    } catch {
+      console.warn('reporting-host: alert tick failed');
+    }
+  });
+}
+
+function healthHandler(
+  database: Queryable,
+  housekeeping?: HealthTicker,
+  alerts?: Pick<Alerts, 'tick'>,
+): () => Promise<Response> {
   return async () => {
+    tickAlerts(alerts);
     if (housekeeping) {
       // After the response, so a slow prune never holds the health check. The
       // tick does not throw; the catch is for a ticker that breaks that rule.
-      after(async () => {
+      later(async () => {
         try {
           await housekeeping.tick();
         } catch {
@@ -168,13 +207,17 @@ function healthHandler(database: Queryable, housekeeping?: HealthTicker): () => 
  * var or network call.
  */
 export function createReportingHost(options: ReportingHostOptions): ReportingHost {
-  const { database, housekeeping, ...handlerOptions } = options;
+  const { database, housekeeping, alerts, ...handlerOptions } = options;
   return {
     handleV1: guardedHandler(
       database,
-      createReportingHandler({ ...handlerOptions, redactEnvVars: HOST_SECRET_ENV }),
+      createReportingHandler({
+        ...handlerOptions,
+        redactEnvVars: HOST_SECRET_ENV,
+        afterIngest: () => tickAlerts(alerts),
+      }),
     ),
-    handleHealth: healthHandler(database, housekeeping),
+    handleHealth: healthHandler(database, housekeeping, alerts),
   };
 }
 
@@ -182,6 +225,7 @@ interface Store {
   readonly db: HostDb;
   readonly database: Queryable;
   readonly housekeeping: Housekeeping;
+  readonly alerts: Alerts;
 }
 
 const hostLog = {
@@ -241,7 +285,13 @@ function sharedStore(): Store {
     // health check and the role check run share it.
     const owner = openDatabase('reporting-host', 5);
     const db = withDrizzle(owner, { schema: schemaTables }).orm;
-    store = { db, database: owner.database, housekeeping: createHostHousekeeping(db) };
+    store = {
+      db,
+      database: owner.database,
+      housekeeping: createHostHousekeeping(db),
+      // Logged as fixed text and names: never an address, a key or an error's text.
+      alerts: createAlerts({ db, mail: alertMailFromEnv(process.env), log: consoleLogger }),
+    };
   }
   return store;
 }
@@ -250,8 +300,8 @@ function buildHost(composition: () => HostComposition): ReportingHost {
   // Composition first: a production host nobody configured refuses before it
   // touches the database.
   const injected = composition();
-  const { db, database, housekeeping } = sharedStore();
-  return createReportingHost({ db, database, housekeeping, ...injected });
+  const { db, database, housekeeping, alerts } = sharedStore();
+  return createReportingHost({ db, database, housekeeping, alerts, ...injected });
 }
 
 /**
@@ -268,8 +318,8 @@ export function developmentHost(): ReportingHost {
  * production host still reports health before instrumentation has run.
  */
 export function sharedHealth(): () => Promise<Response> {
-  const { database, housekeeping } = sharedStore();
-  return healthHandler(database, housekeeping);
+  const { database, housekeeping, alerts } = sharedStore();
+  return healthHandler(database, housekeeping, alerts);
 }
 
 let instance: ReportingHost | undefined;

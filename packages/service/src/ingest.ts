@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   type Db,
   type EventInput,
@@ -20,6 +21,18 @@ export interface IngestOptions {
   /** Extra environment variable names whose values are redacted on ingest
    * (core's `heldSecrets`), beside `REPORTING_OPERATOR_KEY` and KEYSTORE_*. */
   readonly redactEnvVars?: readonly string[];
+}
+
+/**
+ * What the timeline keeps of `ErrorReport.person`: sha256 of the site, the
+ * environment and the id, cut to 32 hex. One-way, and different per site and
+ * environment, so it counts people within one group and joins nothing else.
+ */
+export function personHash(site: string, environment: string, person: string): string {
+  return createHash('sha256')
+    .update(`${site}\n${environment}\n${person}`)
+    .digest('hex')
+    .slice(0, 32);
 }
 
 /** Where a report's own time is trusted: within a week before arrival and five
@@ -111,7 +124,12 @@ export async function ingestErrors(
               tenantId: input.tenantId ?? null,
               requestId: input.requestId ?? null,
               message: input.message,
-              data: (input.data ?? {}) as Record<string, string | number | boolean | null>,
+              data: {
+                ...((input.data ?? {}) as Record<string, string | number | boolean | null>),
+                ...(report.person
+                  ? { person: personHash(key.site, key.environment, report.person) }
+                  : {}),
+              },
             });
           },
           release: null,

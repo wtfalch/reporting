@@ -33,6 +33,7 @@ export const INGEST_LIMITS = {
   kind: 100,
   release: 128,
   requestId: LIMITS.requestId,
+  person: 256,
 } as const;
 
 /** How far an `occurredAt` may sit from the moment the batch arrives; outside
@@ -58,6 +59,10 @@ export const errorReportSchema = z.strictObject({
   color: z.enum(COLORS).optional(),
   requestId: z.string().min(1).max(INGEST_LIMITS.requestId).optional(),
   occurredAt: z.iso.datetime({ offset: true }).optional(),
+  /** Who hit it, as the sender knows them: the signed-in person's issuer id,
+   * or a session id. Never stored: the host keeps a one-way hash of it per
+   * site and environment (`personHash`), to count people per group. */
+  person: z.string().min(1).max(INGEST_LIMITS.person).optional(),
 });
 export type ErrorReport = z.infer<typeof errorReportSchema>;
 
@@ -90,6 +95,10 @@ export interface ErrorGroup {
   readonly state: ErrorState;
   readonly resolvedAt: string | null;
   readonly resolvedBy: Actor | null;
+  /** How many different people hit it, from the reports that named one
+   * (`ErrorReport.person`) and are still within event retention; `null`
+   * when none of them did. */
+  readonly people: number | null;
 }
 
 export interface ErrorsList {

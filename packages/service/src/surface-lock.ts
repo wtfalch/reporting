@@ -1,4 +1,4 @@
-// The 0.1 type surface, locked (as analytics' surface-lock.ts).
+// The 0.2 type surface, locked (as analytics' surface-lock.ts).
 //
 // Every type name index.ts exports is imported and referenced here. An import
 // of a name index.ts no longer exports is a compile error, so `pnpm
@@ -11,8 +11,22 @@
 
 import type {
   Actor,
+  AlertChoice,
+  AlertChoices,
+  AlertCopy,
+  AlertKind,
+  AlertMail,
+  AlertRow,
+  AlertRuleAuditEvent,
+  AlertRuleRow,
+  AlertRules,
+  AlertRulesInput,
+  AlertTickResult,
+  Alerts,
   AuditEvent,
   AuditEventRow,
+  Baseline,
+  CreateAlertsOptions,
   CreateReportingHandlerOptions,
   ErrorGroup,
   ErrorReport,
@@ -26,6 +40,7 @@ import type {
   MintRequest,
   MintSiteKeyInput,
   MintedSiteKey,
+  ReleaseInput,
   ReportingEnvironment,
   SeriesBucket,
   SeriesOptions,
@@ -44,6 +59,21 @@ import type { migrationSources, migrationsDir } from './migrations-dir.js';
 /** Referencing each name is what makes its absence a compile error. */
 export type LockedSurface = [
   Actor,
+  AlertKind,
+  AlertMail,
+  AlertRow,
+  AlertChoice,
+  AlertChoices,
+  AlertCopy,
+  AlertRuleAuditEvent,
+  AlertRuleRow,
+  AlertRules,
+  AlertRulesInput,
+  AlertTickResult,
+  Alerts,
+  Baseline,
+  CreateAlertsOptions,
+  ReleaseInput,
   AuditEvent,
   AuditEventRow,
   CreateReportingHandlerOptions,
@@ -73,8 +103,8 @@ export type LockedSurface = [
   Tx,
 ];
 
-/** The surface is 28 names. Changing it is a breaking change for the host. */
-export type LockedSurfaceSize = 28;
+/** The surface is 43 names. Changing it is a breaking change for the host. */
+export type LockedSurfaceSize = 43;
 
 /** The runtime exports outside `index.ts`: the subpath
  * `@wtfalch/reporting-service/migrations-dir`. */

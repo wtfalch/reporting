@@ -1,4 +1,11 @@
 import type { Db } from '@wtfalch/reporting-core';
+import {
+  alertRulesBodySchema,
+  readAlertRules,
+  recordRelease,
+  releaseBodySchema,
+  saveAlertRules,
+} from './alerts.js';
 import { writeAudit } from './audit.js';
 import { readTextCapped } from './body.js';
 import { ServiceError, errorResponse, jsonResponse } from './errors.js';
@@ -42,10 +49,17 @@ export interface CreateReportingHandlerOptions {
   readonly now?: () => Date;
   /** Extra environment variable names whose values are redacted on ingest. */
   readonly redactEnvVars?: IngestOptions['redactEnvVars'];
+  /** Called after an accepted batch, once its rows are committed: the host
+   * ticks the error emails from here, after the response. Must not throw. */
+  readonly afterIngest?: () => void;
 }
 
 const MINT_BODY_BYTES = 4096;
 const STATE_BODY_BYTES = 4096;
+const RULES_BODY_BYTES = 16 * 1024;
+const RELEASE_BODY_BYTES = 4096;
+/** A release said to have gone up more than this far ahead of now is refused. */
+const RELEASE_FUTURE_MS = 5 * 60_000;
 const SITE_KEY_PATH = /^\/v1\/site-keys\/([^/]+)$/;
 const ERROR_PATH = /^\/v1\/errors\/([^/]+)$/;
 const ERROR_STATE_PATH = /^\/v1\/errors\/([^/]+)\/state$/;
@@ -80,6 +94,9 @@ async function readJson(request: Request, maxBytes: number): Promise<unknown> {
  *   is `401` at once: a server caller learns it, and the SDK does not retry.
  * - `GET /v1/errors`, `GET /v1/errors/series`, `GET /v1/errors/:fingerprint`,
  *   `POST /v1/errors/:fingerprint/state` -- operator key.
+ * - `GET /v1/alert-rules?site`, `PUT /v1/alert-rules`, `POST /v1/releases` --
+ *   operator key: the error emails a company chose, and when a release went
+ *   up (alerts.ts).
  *
  * Framework-neutral: a host mounts it at `/v1/*` and passes every request.
  * Anything else is `404`.
@@ -167,7 +184,32 @@ export function createReportingHandler(
       parsed.data.errors,
       secret,
     );
+    options.afterIngest?.();
     return jsonResponse({ accepted }, 202);
+  }
+
+  async function rules(url: URL): Promise<Response> {
+    return jsonResponse(await readAlertRules(db, params.site(url)));
+  }
+
+  async function putRules(request: Request): Promise<Response> {
+    if (!tenantId) throw new ServiceError('not_configured', 'Alert rules are not configured');
+    const parsed = alertRulesBodySchema.safeParse(await readJson(request, RULES_BODY_BYTES));
+    if (!parsed.success) throw new ServiceError('invalid_request', 'Invalid alert rules');
+    return jsonResponse(await saveAlertRules(db, tenantId, parsed.data, now()));
+  }
+
+  async function release(request: Request): Promise<Response> {
+    const parsed = releaseBodySchema.safeParse(await readJson(request, RELEASE_BODY_BYTES));
+    const at = now();
+    if (
+      !parsed.success ||
+      new Date(parsed.data.since).getTime() > at.getTime() + RELEASE_FUTURE_MS
+    ) {
+      throw new ServiceError('invalid_request', 'Invalid release');
+    }
+    await recordRelease(db, parsed.data, at);
+    return jsonResponse({ ...parsed.data, since: new Date(parsed.data.since).toISOString() });
   }
 
   async function list(url: URL): Promise<Response> {
@@ -244,6 +286,15 @@ export function createReportingHandler(
     }
     if (path === '/v1/site-keys' && method === 'POST') {
       return operator(request, () => mint(request), 'reporting: site key mint failed');
+    }
+    if (path === '/v1/alert-rules' && method === 'GET') {
+      return operator(request, () => rules(url), 'reporting: alert rules read failed');
+    }
+    if (path === '/v1/alert-rules' && method === 'PUT') {
+      return operator(request, () => putRules(request), 'reporting: alert rules save failed');
+    }
+    if (path === '/v1/releases' && method === 'POST') {
+      return operator(request, () => release(request), 'reporting: release record failed');
     }
     const keyId = SITE_KEY_PATH.exec(path)?.[1];
     if (keyId !== undefined && method === 'DELETE') {

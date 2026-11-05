@@ -3,12 +3,51 @@ export { ServiceError, errorResponse, type ServiceErrorCode } from './errors.js'
 export { readTextCapped } from './body.js';
 export { consoleLogger, type Logger } from './log.js';
 export {
+  ALERT_COPIES,
+  ALERT_KINDS,
+  ALERT_LIMITS,
+  BASELINE_DAYS,
+  BASELINE_MIN_DAYS,
+  RAISED_FACTOR,
+  RAISED_MIN,
+  alertRulesBodySchema,
+  baselineAfter,
+  baselineOf,
+  createAlerts,
+  currentRelease,
+  newKindMail,
+  readAlertRules,
+  recordRelease,
+  releaseBodySchema,
+  saveAlertRules,
+  wentUpMail,
+  type AlertKind,
+  type AlertMail,
+  type AlertChoice,
+  type AlertChoices,
+  type AlertCopy,
+  type AlertRules,
+  type AlertRulesInput,
+  type AlertTickResult,
+  type Alerts,
+  type Baseline,
+  type CreateAlertsOptions,
+  type ReleaseInput,
+} from './alerts.js';
+export {
   writeAudit,
+  type AlertRuleAuditEvent,
   type AuditEvent,
   type SiteKeyAuditEvent,
   type StateAuditEvent,
 } from './audit.js';
-export { ingestErrors, occurredAtOf, OPERATOR_KEY_ENV, type IngestOptions } from './ingest.js';
+export {
+  ingestErrors,
+  occurredAtOf,
+  OPERATOR_KEY_ENV,
+  personHash,
+  type IngestOptions,
+} from './ingest.js';
 export {
   LIST_LIMIT,
   MAX_SERIES_DAYS,
@@ -18,6 +57,7 @@ export {
   errorSeries,
   getError,
   listErrors,
+  peopleOf,
   setState,
   toErrorGroup,
   type ListOptions,
@@ -65,8 +105,13 @@ export {
 } from './schema.js';
 export {
   auditEvents,
+  reportingAlertRules,
+  reportingAlerts,
+  reportingReleases,
   reportingSiteKeys,
   serviceTables,
+  type AlertRow,
+  type AlertRuleRow,
   type AuditEventRow,
   type SiteKeyRow,
 } from './tables.js';
