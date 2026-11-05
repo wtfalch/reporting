@@ -46,6 +46,10 @@ it.
 
 - `packages/sdk` is `@wtfalch/reporting` 2.0.0, the only package that
   publishes. It is a scaffold until the SDK tasks in the plan land.
+- `packages/service` is `@wtfalch/reporting-service`, private and never
+  published: a company's reporting backend (site keys, the error ingest, the
+  operator reads, the audit log), built on core. `docs/plans/backend.md` has
+  the contract.
 - `packages/reporting` is `@wtfalch/reporting-core`, private and never
   published. The library 1.0.0 and 1.1.0 shipped under the name
   `@wtfalch/reporting`; this package keeps that code for the backend.
