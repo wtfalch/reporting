@@ -36,6 +36,8 @@ export const ALERT_LIMITS = {
   retryAfterMs: 10 * 60_000,
   /** A claim older than this with no answer is a crashed send, tried again. */
   staleSendingMs: 15 * 60_000,
+  /** One send to one recipient is cut off after this; the mail is then failed and retried. */
+  sendTimeoutMs: 15_000,
   /** A group first seen longer ago than this is not news, whatever the rule. */
   newKindLookbackMs: 24 * 60 * 60_000,
   /** New kinds mailed per rule per tick; the rest wait for the next tick. */
@@ -433,6 +435,8 @@ export interface CreateAlertsOptions {
   readonly now?: () => Date;
   /** The least time between two ticks of this process. Default one minute. */
   readonly everyMs?: number;
+  /** The longest one send may take. Default `ALERT_LIMITS.sendTimeoutMs`. */
+  readonly sendTimeoutMs?: number;
 }
 
 export interface AlertTickResult {
@@ -452,10 +456,24 @@ export interface Alerts {
 type RuleRow = typeof reportingAlertRules.$inferSelect;
 type AlertRowT = typeof reportingAlerts.$inferSelect;
 
+/** The promise's answer, or a `SendTimeoutError` after `ms`: one hung send must not hold the tick. */
+function sendWithin<T>(send: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error('send timed out');
+      error.name = 'SendTimeoutError';
+      reject(error);
+    }, ms);
+  });
+  return Promise.race([send, timeout]).finally(() => clearTimeout(timer));
+}
+
 export function createAlerts(options: CreateAlertsOptions): Alerts {
   const { db, mail, log } = options;
   const now = options.now ?? (() => new Date());
   const everyMs = options.everyMs ?? 60_000;
+  const sendTimeoutMs = options.sendTimeoutMs ?? ALERT_LIMITS.sendTimeoutMs;
   let running: Promise<AlertTickResult> | null = null;
   let lastAt = Number.NEGATIVE_INFINITY;
   let warnedNoMail = false;
@@ -470,7 +488,7 @@ export function createAlerts(options: CreateAlertsOptions): Alerts {
     for (const to of row.recipients) {
       if (delivered.has(to)) continue;
       try {
-        await mail.transport.send({ ...message, to, from: mail.from });
+        await sendWithin(mail.transport.send({ ...message, to, from: mail.from }), sendTimeoutMs);
         delivered.add(to);
       } catch (error) {
         // Fixed text and names only: never the address, the mail or the provider's answer.

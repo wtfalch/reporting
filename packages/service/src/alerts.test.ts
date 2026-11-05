@@ -447,6 +447,37 @@ describe('a new kind of error', () => {
   });
 });
 
+describe('a send that never answers', () => {
+  it('ends at the time limit, marks the mail failed, and the next tick runs', async () => {
+    await rules({
+      site: 'shop',
+      rules: [rule('production', 'new_kind', ['a@acme.example'])],
+      by: BY,
+    });
+    clock = new Date(clock.getTime() + MINUTE);
+    await report('production', [{ kind: 'TypeError', message: 'one', runtime: 'server' }]);
+    const hung: Transport = { send: () => new Promise<SendResult>(() => undefined) };
+    const a = createAlerts({
+      db: t.db,
+      mail: { transport: hung, from: 'Acme <no-reply@acme.example>' },
+      log,
+      now: () => clock,
+      everyMs: 0,
+      sendTimeoutMs: 50,
+    });
+    expect(await a.tick()).toEqual({ sent: 0, failed: 1 });
+    const [row] = await t.query('select status, delivered from reporting_alerts');
+    expect(row).toMatchObject({ status: 'failed', delivered: [] });
+    const failures = log.lines.filter((l) => l.msg === 'reporting: alert mail failed');
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.obj).toMatchObject({ err: 'SendTimeoutError' });
+    // The tick did not stay marked as running: the retry runs and is judged on its own.
+    clock = new Date(clock.getTime() + ALERT_LIMITS.retryAfterMs + MINUTE);
+    expect(await a.tick()).toEqual({ sent: 0, failed: 1 });
+    expect(ALERT_LIMITS.sendTimeoutMs).toBe(15_000);
+  });
+});
+
 describe('errors went up after a release', () => {
   // The release went up at 2026-11-09T12:00Z; normal is 10 a day over the 8 days before.
   const since = Date.UTC(2026, 10, 9, 12);
