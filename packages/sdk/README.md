@@ -50,6 +50,11 @@ try {
   the sender drops every report after it without sending.
 - The log (default `console.warn`) gets fixed text only, never a report's
   text or the site key.
+- `person` (on a report, or in `capture`'s context) is the signed-in
+  person's issuer id or a session id, 1 to 256 characters, so a group can say
+  how many people hit it. Never an email or a name. The backend keeps only a
+  hash of it per site and environment. One that is empty, longer than 256
+  characters or not a string is left off, and the report is still sent.
 - The sender redacts nothing; the backend redacts on ingest. Take out any
   secret you know of (a login, a password) before you put it in a message.
   Where in the app the error happened belongs in the message or the stack.
@@ -69,6 +74,10 @@ const group = await reader.get({ site: appKey, fingerprint });
 await reader.setState({ site: appKey, fingerprint, state: 'resolved', by: { class: 'human', id } });
 const { buckets } = await reader.series({ site: appKey, from, to, bucket: 60 });
 ```
+
+A group's `people` is how many different people hit it, counted from the
+reports that named a `person` and are still within event retention; `null`
+when none of them named one.
 
 A failure rejects with `ReportingApiError`, which carries `status` and a
 typed `code` (`ReportingErrorCode`: `invalid_request`, `unauthorized`,

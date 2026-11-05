@@ -19,6 +19,7 @@ const GROUP: ErrorGroup = {
   state: 'open',
   resolvedAt: null,
   resolvedBy: null,
+  people: 2,
 };
 
 function reader(answer: () => Response | Promise<Response>) {
@@ -67,6 +68,15 @@ describe('createErrorReader', () => {
     );
     expect(r.call().url.pathname).toBe(`/v1/errors/${GROUP.fingerprint}`);
     expect(r.call().url.searchParams.get('site')).toBe('shop');
+  });
+
+  it('people is a count, or null when no report named a person', async () => {
+    const counted = reader(() => Response.json(GROUP));
+    const group = await counted.client.get({ site: 'shop', fingerprint: GROUP.fingerprint });
+    expect(group.people).toBe(2);
+    const none = reader(() => Response.json({ items: [{ ...GROUP, people: null }], next: null }));
+    const page = await none.client.list({ site: 'shop' });
+    expect(page.items[0]?.people).toBeNull();
   });
 
   it('setState posts { site, state, by } with by narrowed to class and id', async () => {
