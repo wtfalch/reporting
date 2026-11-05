@@ -41,6 +41,38 @@ pieces it composes are exported too: `databaseSiteKeys`, `mintSiteKey`,
 | `GET /v1/errors/:fingerprint?site` | operator | `200 ErrorGroup` or `404` |
 | `POST /v1/errors/:fingerprint/state` `{ site, state, by }` | operator | `200 ErrorGroup` or `404` |
 | `GET /v1/errors/series?site&environment&from&to&bucket&fingerprint` | operator | `200 { bucketMinutes, buckets }` |
+| `GET /v1/alert-rules?site` | operator | `200 AlertRules`; a site never saved has every switch off |
+| `PUT /v1/alert-rules` `{ site, name?, recipients, links?, choices, by }` | operator | `200 AlertRules`; `400` for an email that is on with no recipient; `503` with no tenant |
+| `POST /v1/releases` `{ site, environment, release, since }` | operator | `200` the release as recorded; `400` for a `since` more than 5 minutes ahead |
+
+An `ErrorGroup` carries `people`: how many different people hit it, from
+the reports that named one (`ErrorReport.person`, an issuer or session id
+the sender has), within event retention; `null` when none did. The id itself
+is never stored: the timeline row keeps `personHash(site, environment, id)`,
+32 hex.
+
+## Error emails
+
+`choices` is Boule's Errors › Settings exactly: `{ live: { newKind, wentUp },
+work: { newKind, wentUp } }`, `live` being the `production` environment and
+`work` the `stage` one. `recipients` (up to 20 addresses) get every email of
+the site; `links.live` and `links.work` are where each copy's mail button
+goes. `createAlerts({ db, mail, log }).tick()` decides and sends:
+
+- **A new kind of error**: one mail per group first seen after the switch
+  went on (and within a day), never per event.
+- **Errors went up after a release**: one mail per release, by Boule's W5.2
+  rule (`baselineOf`: normal is the median of the 8 whole UTC days before
+  the release day, counted from the first day with an error, at least 3 such
+  days; raised at 3 times normal and at least 10 errors). The release and
+  its start come from `POST /v1/releases`; with none recorded, from the
+  newest error that names a release, counted from its first error. Checked
+  for 7 days after a release.
+
+Every mail is claimed first as a `reporting_alerts` row, unique per site,
+environment, kind and subject, so a second tick or host never sends it
+again. A failed send is logged as fixed text (no address) and tried at most
+3 times in all, 10 minutes apart.
 
 Every failure is `@wtfalch/contracts`' `serviceErrorResponse`,
 `{ error: { code, message } }`. `site` is required on every read;
@@ -53,7 +85,8 @@ core's migrations (`reporting`) and then this package's (`reporting-service`):
 pass it to `@wtfalch/db/migrate`'s `runMigrationSources` with the owner
 credential. The runtime role needs:
 
-- `reporting_site_keys`: SELECT, INSERT, UPDATE.
+- `reporting_site_keys`, `reporting_alert_rules`, `reporting_releases`,
+  `reporting_alerts`: SELECT, INSERT, UPDATE.
 - `audit_events`: SELECT, INSERT only. Triggers refuse UPDATE, DELETE and
   TRUNCATE for every role anyway.
 - core's tables as core's README lists them.

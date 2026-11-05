@@ -20,11 +20,14 @@ first.
 | `DATABASE_URL_OWNER` | yes | yes | The owner's URL, same database. Used by `migrate.mjs` only; `start.sh` removes it before the server starts. The owner URL must carry a password. |
 | `REPORTING_OPERATOR_KEY` | yes | yes, in effect | The operator bearer: site-key mint and revoke, and every error read and state change. foundry generates it and gives the same value to Boule. Unset or empty, every operator route answers 401 and the host logs a warning at boot. |
 | `AUTH_ORGANIZATION_ID` | no | yes, in effect | The company's sign-in organisation. Its tenant id (`tenantIdOf`) goes on every key and row. Unset, a mint answers 503 `not_configured` and the host logs a warning at boot. |
+| `MAIL_FROM` | no | for error emails | The From line of the company's error emails, an address or `Name <address>`. Unset, no error email is sent and the host logs a warning at boot. |
+| `LETTERMINT_API_TOKEN` | yes | for error emails | The company's Lettermint token (the `<slug>-app` project, as an app's `uses.mail` gets it). Redacted from every stored report. |
+| `MAIL_SINK_URL` | no | stage only | A Mailpit sink; wins over the token, so a stage host never reaches the provider. |
 | `MAINTENANCE` | no | no | `true` makes `/api/health` answer 200 with `maintenance: true` even when the database check fails. |
 | `APP_VERSION` | no | no | Set by the image from Coolify's `SOURCE_COMMIT` build arg; `/api/health` reports it. |
 | `NODE_ENV`, `PORT`, `HOSTNAME` | no | set by the image | `production`, `3000`, `0.0.0.0`. Any `NODE_ENV` other than exactly `development` or `test` is production. |
 
-The ingest redacts `REPORTING_OPERATOR_KEY`'s and `DATABASE_URL`'s values,
+The ingest redacts `REPORTING_OPERATOR_KEY`'s, `DATABASE_URL`'s and `LETTERMINT_API_TOKEN`'s values,
 and the estate's `KEYSTORE_*`, from every stored report. Nothing here logs a
 key, a secret or an error's text: a failure is logged as fixed text and the
 error's name.
@@ -38,7 +41,8 @@ screens.
 
 - `/v1/*`: the service (`POST /v1/site-keys`, `DELETE /v1/site-keys/:id`,
   `POST /v1/errors`, `GET /v1/errors`, `GET /v1/errors/series`,
-  `GET /v1/errors/:fingerprint`, `POST /v1/errors/:fingerprint/state`).
+  `GET /v1/errors/:fingerprint`, `POST /v1/errors/:fingerprint/state`,
+  `GET` and `PUT /v1/alert-rules`, `POST /v1/releases`).
   Every request is refused with `503 unavailable` until the connected role
   passes the runtime-role check.
 - `/api/health`: `{ ok, service: 'reporting-host', version, checks: [{ name:
@@ -51,6 +55,10 @@ screens.
   `reporting.prune_open_errors`. The first tick writes
   `events.retention_days` = 90 if the table holds no row for it; an existing
   row, whatever its value, is left alone.
+- Each `/api/health` call and each accepted `POST /v1/errors` batch also
+  ticks the error emails after the answer (at most once a minute per
+  process; the service README, "Error emails"). Coolify's health check runs
+  every 30 seconds, so a mail goes out within about a minute.
 
 ## Migrations and the runtime role
 
@@ -65,7 +73,8 @@ owner, into schema `reporting`:
 2. creates or syncs the runtime role with `ensureRuntimeRole`, holding it to
    the service README's grants (`scripts/runtime-grants.mjs`):
    - `audit_events` and `reporting_events`: SELECT and INSERT only;
-   - `reporting_site_keys` and core's six tables (`reporting_tasks`,
+   - `reporting_site_keys`, `reporting_alert_rules`, `reporting_releases`,
+     `reporting_alerts` and core's six tables (`reporting_tasks`,
      `reporting_settings`, `reporting_errors`, `reporting_tenant_settings`,
      `reporting_error_tenants`, `reporting_requests`): no DELETE or
      TRUNCATE;

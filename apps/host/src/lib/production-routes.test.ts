@@ -238,9 +238,15 @@ describe('production /v1 through the shipped instrumentation', () => {
   });
 
   it('warns at boot, naming the variable and never a value, when the operator key or the organisation id is missing', async () => {
-    const lines = async (operatorKey: string, organisation: string): Promise<unknown[]> => {
+    const lines = async (
+      operatorKey: string,
+      organisation: string,
+      mailFrom = 'Acme <no-reply@acme.example>',
+    ): Promise<unknown[]> => {
       vi.stubEnv('REPORTING_OPERATOR_KEY', operatorKey);
       vi.stubEnv('AUTH_ORGANIZATION_ID', organisation);
+      vi.stubEnv('MAIL_FROM', mailFrom);
+      vi.stubEnv('LETTERMINT_API_TOKEN', 'lm_token-for-tests');
       vi.resetModules();
       const comp = await import('./composition.js');
       comp.resetProductionComposition();
@@ -275,5 +281,15 @@ describe('production /v1 through the shipped instrumentation', () => {
     expect(
       (await lines('', '')).map((line) => (line as { meta: { variable: string } }).meta.variable),
     ).toEqual(['REPORTING_OPERATOR_KEY', 'AUTH_ORGANIZATION_ID']);
+    const noMail = await lines(OPERATOR_KEY, ORGANISATION, '');
+    expect(noMail).toEqual([
+      {
+        level: 'warn',
+        message:
+          'reporting: MAIL_FROM is not set: with it, MAIL_SINK_URL or LETTERMINT_API_TOKEN: no error emails are sent',
+        meta: { variable: 'MAIL_FROM' },
+      },
+    ]);
+    expect(JSON.stringify(noMail)).not.toContain('lm_token-for-tests');
   });
 });
