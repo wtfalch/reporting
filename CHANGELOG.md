@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.0 (unreleased)
+
+`@wtfalch/reporting` is now the client SDK for a company's reporting backend
+(`packages/sdk/README.md`).
+
+- `ErrorReport.person` and `CaptureContext.person`: the signed-in person's
+  issuer id or a session id, 1 to 256 characters (`SENDER_LIMITS.person`).
+  The sender leaves off one that is empty, too long or not a string, and still
+  sends the report. Never an email or a name; the backend (reporting#103)
+  stores only a hash.
+- `ErrorGroup.people`: how many different people hit the group, or `null`
+  when no report named one.
+
 ## 1.1.0
 
 Answer times, slow answers and sign-ins per color, and a read that draws them

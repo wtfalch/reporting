@@ -13,6 +13,8 @@ export const SENDER_LIMITS = {
   kind: 100,
   release: 128,
   requestId: 128,
+  /** The backend (reporting#103) takes 1-256 characters and stores only a hash. */
+  person: 256,
 } as const;
 
 export interface ErrorSenderOptions {
@@ -45,6 +47,8 @@ export interface CaptureContext {
   release?: string;
   color?: DeployColor;
   requestId?: string;
+  /** The signed-in person's issuer id or a session id; never an email or a name. */
+  person?: string;
   /** Overrides the class name read from the thrown value. */
   kind?: string;
 }
@@ -152,6 +156,12 @@ export function createErrorSender(options: ErrorSenderOptions): ErrorSender {
     if (color === 'blue' || color === 'green') out.color = color;
     const requestId = bounded(report.requestId, SENDER_LIMITS.requestId);
     if (requestId) out.requestId = requestId;
+    // Dropped, not cut: a cut id would count as a different person.
+    const person =
+      typeof report.person === 'string' && report.person.length <= SENDER_LIMITS.person
+        ? bounded(report.person, SENDER_LIMITS.person)
+        : undefined;
+    if (person) out.person = person;
     return out;
   }
 
@@ -265,6 +275,7 @@ export function createErrorSender(options: ErrorSenderOptions): ErrorSender {
           release: context.release,
           color: context.color,
           requestId: context.requestId,
+          person: context.person,
         });
       } catch {
         return Promise.resolve();
