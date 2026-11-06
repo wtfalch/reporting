@@ -1,0 +1,54 @@
+{
+  "name": "@wtfalch/reporting-service",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "A company's reporting backend: site keys, error ingest, the operator reads and the audit log. Never published; @wtfalch/reporting is packages/sdk.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wtfalch/reporting",
+    "directory": "packages/service"
+  },
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    },
+    "./migrations-dir": {
+      "types": "./dist/migrations-dir.d.ts",
+      "default": "./dist/migrations-dir.js"
+    },
+    "./migrations/*.sql": "./dist/migrations/*.sql",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/migrations && cp src/migrations/*.sql dist/migrations/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "node -e \"throw new Error('The service implementation is private; publish packages/sdk only')\""
+  },
+  "dependencies": {
+    "@wtfalch/contracts": "0.2.0",
+    "@wtfalch/mailer": "0.9.0",
+    "@wtfalch/reporting-core": "workspace:*",
+    "drizzle-orm": "0.39.3",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/node": "^22",
+    "@wtfalch/db": "0.5.2",
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.6"
+  }
+}

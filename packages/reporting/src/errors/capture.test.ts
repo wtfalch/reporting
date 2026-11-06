@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createReporting } from '../index.js';
+import { createCapture, createReporting } from '../index.js';
 import { KIND_PATTERN } from '../schema.js';
 import { reportingEvents } from '../tables.js';
 import { type TestDb, memoryLog, testDb } from '../test/db.js';
@@ -681,5 +681,90 @@ describe('two tenants hitting one fingerprint', () => {
     await t.query(`select reporting_prune_errors(interval '30 days', 5000) as n`);
     const left = await t.query('select count(*)::int as n from reporting_error_tenants');
     expect(left[0]?.n).toBe(0);
+  });
+});
+
+describe('captureError() color', () => {
+  it("stamps the context's color over the process's own, and null when the context says null", async () => {
+    await reset();
+    const previous = process.env.REPORTING_COLOR;
+    process.env.REPORTING_COLOR = 'blue';
+    try {
+      const h = deferHarness();
+      const r = createReporting({
+        db: t.db,
+        log: memoryLog(),
+        site: 'test',
+        mode: 'test',
+        defer: h.defer,
+      });
+      r.captureError(new RangeError('from green'), { color: 'green' });
+      r.captureError(new SyntaxError('no color'), { color: null });
+      r.captureError(new EvalError('host color'));
+      await h.drain();
+      const rows = await t.query('select kind, color from reporting_errors order by kind');
+      expect(rows).toEqual([
+        { kind: 'EvalError', color: 'blue' },
+        { kind: 'RangeError', color: 'green' },
+        { kind: 'SyntaxError', color: null },
+      ]);
+    } finally {
+      if (previous === undefined) Reflect.deleteProperty(process.env, 'REPORTING_COLOR');
+      else process.env.REPORTING_COLOR = previous;
+    }
+  });
+});
+
+describe('createCapture() scope', () => {
+  const STACK = [
+    'TypeError: cannot read x',
+    '    at render (/app/src/pages/cart.ts:10:5)',
+    '    at handle (/app/src/server.ts:40:3)',
+  ].join('\n');
+  // sha256("TypeError\nrender (src/pages/cart.ts)\nhandle (src/server.ts)"), cut to 32:
+  // the library's fingerprint as it was before `scope` existed.
+  const PLAIN = '655f2c1fb1e81a8e8a90192386b57b9c';
+  // sha256("shop\nproduction\n" + PLAIN), cut to 32.
+  const SCOPED = 'd5bf3fa47694f1dd0c54b73e273a8303';
+
+  async function captureOnce(scope?: { site: string; environment: string }) {
+    await reset();
+    const h = deferHarness();
+    const events: { data?: Record<string, unknown> }[] = [];
+    const capture = createCapture({
+      db: t.db,
+      log: memoryLog(),
+      site: 'shop',
+      environment: 'production',
+      now: () => new Date('2026-11-02T12:00:00Z'),
+      defer: h.defer,
+      event: (input) => void events.push(input as { data?: Record<string, unknown> }),
+      ...(scope ? { scope } : {}),
+    });
+    const error = new TypeError('cannot read x');
+    error.stack = STACK;
+    capture(error);
+    await h.drain();
+    const rows = await t.query('select fingerprint from reporting_errors');
+    return { group: rows[0]?.fingerprint, event: events[0]?.data?.fingerprint };
+  }
+
+  it('without a scope, the group and the timeline row keep the plain fingerprint, byte for byte', async () => {
+    expect(await captureOnce()).toEqual({ group: PLAIN, event: PLAIN });
+  });
+
+  it('with a scope, both carry sha256(site, environment, fingerprint) cut to 32 hex', async () => {
+    expect(await captureOnce({ site: 'shop', environment: 'production' })).toEqual({
+      group: SCOPED,
+      event: SCOPED,
+    });
+    const stage = await captureOnce({ site: 'shop', environment: 'stage' });
+    const other = await captureOnce({ site: 'blog', environment: 'production' });
+    for (const fp of [stage.group, other.group]) {
+      expect(fp).toMatch(/^[0-9a-f]{32}$/);
+      expect(fp).not.toBe(SCOPED);
+      expect(fp).not.toBe(PLAIN);
+    }
+    expect(stage.group).not.toBe(other.group);
   });
 });

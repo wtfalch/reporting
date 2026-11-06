@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0 - 2026-11-05
+
+`@wtfalch/reporting` is now the client SDK for a company's reporting backend
+(`packages/sdk/README.md`).
+
+- `ErrorReport.person` and `CaptureContext.person`: the signed-in person's
+  issuer id or a session id, 1 to 256 characters (`SENDER_LIMITS.person`).
+  The sender leaves off one that is empty, too long or not a string, and still
+  sends the report. Never an email or a name; the backend (reporting#103)
+  stores only a hash.
+- `ErrorGroup.people`: how many different people hit the group, or `null`
+  when no report named one.
+- `createErrorSender` (entry `@wtfalch/reporting/sender`) sends error reports
+  to the backend; `createErrorReader` (entry `@wtfalch/reporting/reader`)
+  reads error groups back.
+- Breaking: the `./client` export and the old client are removed. An app that
+  imports `@wtfalch/reporting/client` no longer resolves; move it to the sender
+  and the reader.
+- Breaking: fingerprints are now scoped per site and environment. When a host
+  moves from 1.x, its error groups start afresh.
+- The library is now the private `@wtfalch/reporting-core`; the public package
+  is only this SDK.
+
 ## 1.1.0
 
 Answer times, slow answers and sign-ins per color, and a read that draws them

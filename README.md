@@ -45,9 +45,17 @@ it.
 ## Packages
 
 - `packages/sdk` is `@wtfalch/reporting` 2.0.0, the only package that
-  publishes. It is a scaffold until the SDK tasks in the plan land.
+  publishes: `createErrorSender` for apps and `createErrorReader` for Boule.
+- `packages/service` is `@wtfalch/reporting-service`, private and never
+  published: a company's reporting backend (site keys, the error ingest, the
+  operator reads, the audit log), built on core. `docs/plans/backend.md` has
+  the contract.
 - `packages/reporting` is `@wtfalch/reporting-core`, private and never
   published. The library 1.0.0 and 1.1.0 shipped under the name
   `@wtfalch/reporting`; this package keeps that code for the backend.
+- `apps/host` is `@wtfalch/reporting-host`, private: the Next app foundry
+  deploys once per company. It mounts the service at `/v1/*`, migrates with
+  the owner credential and serves as a checked runtime role. Its README lists
+  the environment; the root `Dockerfile` builds its image.
 
 `docs/adr/0002-one-backend-and-app-per-company.md` has the decision.

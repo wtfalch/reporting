@@ -21,6 +21,12 @@ export { errorsPage } from './errors/reader.js';
 // or reopens it -- the two calls a host's triage detail page makes once it
 // has a group from errorsPage. No permission is applied; the host gates.
 export { errorDetail, setErrorState } from './errors/reader.js';
+// The capture path on its own, for a host that captures on another app's
+// behalf (the reporting service's ingest): the same redaction, fingerprint
+// and group upsert `createReporting().captureError` runs, with the host
+// choosing the site, environment, time and where the timeline row goes.
+export { createCapture, type CaptureOptions } from './errors/capture.js';
+export { fingerprint, scopedFingerprint } from './errors/fingerprint.js';
 
 function modeFromEnv(): Mode {
   const env = process.env.NODE_ENV;

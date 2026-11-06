@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "type": "module",
   "license": "MIT",
-  "description": "Client SDK for the reporting backend a company runs for itself: send errors from a server, read them back.",
+  "description": "Client SDK for the reporting backend a company runs for itself: send errors from a server or a Worker, read them back.",
   "repository": {
     "type": "git",
     "url": "https://github.com/wtfalch/reporting",
@@ -12,10 +12,12 @@
   "files": [
     "LICENSE",
     "README.md",
-    "dist/client.d.ts",
-    "dist/client.js",
     "dist/index.d.ts",
     "dist/index.js",
+    "dist/reader.d.ts",
+    "dist/reader.js",
+    "dist/sender.d.ts",
+    "dist/sender.js",
     "dist/transport.d.ts",
     "dist/transport.js",
     "dist/types.d.ts",
@@ -26,9 +28,13 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./client": {
-      "types": "./dist/client.d.ts",
-      "default": "./dist/client.js"
+    "./sender": {
+      "types": "./dist/sender.d.ts",
+      "default": "./dist/sender.js"
+    },
+    "./reader": {
+      "types": "./dist/reader.d.ts",
+      "default": "./dist/reader.js"
     }
   },
   "sideEffects": false,
@@ -39,7 +45,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

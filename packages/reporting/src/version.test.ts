@@ -2,8 +2,10 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('release version', () => {
-  it('matches the top CHANGELOG entry, on or after the 1.0.0 analytics removal', () => {
-    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+  it('the published SDK version matches the top CHANGELOG entry, on or after the 1.0.0 analytics removal', () => {
+    const pkg = JSON.parse(
+      readFileSync(new URL('../../sdk/package.json', import.meta.url), 'utf8'),
+    ) as {
       version: string;
     };
     const changelog = readFileSync(new URL('../../../CHANGELOG.md', import.meta.url), 'utf8');
