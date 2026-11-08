@@ -807,6 +807,7 @@ describe('GET /v1/errors/by-context', () => {
       rep({ occurredAt: at(2, 4), context: { company: 'globex' } }),
       rep({ occurredAt: at(2, 5), kind: 'B', context: { company: 'initech' } }),
       rep({ occurredAt: at(2, 6) }),
+      rep({ occurredAt: at(2, 8), context: { company: 'initech' } }),
       rep({ occurredAt: at(2, 7), context: { company: 'late' } }),
     ]);
     await send(shopStageKey, [rep({ occurredAt: at(2, 5), context: { company: 'globex' } })]);
@@ -818,8 +819,8 @@ describe('GET /v1/errors/by-context', () => {
     const body = (await res.json()) as { items: unknown[] };
     expect(body.items).toEqual([
       { id: 'acme', errors: 3, groups: 2 },
+      { id: 'initech', errors: 2, groups: 2 },
       { id: 'globex', errors: 1, groups: 1 },
-      { id: 'initech', errors: 1, groups: 1 },
       { id: 'late', errors: 1, groups: 1 },
     ]);
     expect(await (await get(byUrl('mcp'))).json()).toEqual({
