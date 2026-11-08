@@ -20,6 +20,8 @@ const GROUP: ErrorGroup = {
   resolvedAt: null,
   resolvedBy: null,
   people: 2,
+  contexts: { company: ['acme'], mcp: [], account: [] },
+  retries: 1,
 };
 
 function reader(answer: () => Response | Promise<Response>) {
@@ -115,6 +117,56 @@ describe('createErrorReader', () => {
       to: '2026-11-02T00:00:00.000Z',
       bucket: '1440',
       fingerprint: GROUP.fingerprint,
+    });
+  });
+
+  it('list, get and series send company, mcp and account as query params', async () => {
+    const r = reader(() => Response.json({ items: [], next: null }));
+    await r.client.list({ site: 'shop', company: 'acme', mcp: 'm-1', account: 'a:2' });
+    expect(Object.fromEntries(r.call(0).url.searchParams)).toEqual({
+      site: 'shop',
+      company: 'acme',
+      mcp: 'm-1',
+      account: 'a:2',
+    });
+    const g = reader(() => Response.json(GROUP));
+    await g.client.get({ site: 'shop', fingerprint: GROUP.fingerprint, mcp: 'm-1' });
+    expect(Object.fromEntries(g.call().url.searchParams)).toEqual({ site: 'shop', mcp: 'm-1' });
+    const s = reader(() => Response.json({ bucketMinutes: 60, buckets: [] }));
+    await s.client.series({
+      site: 'shop',
+      from: '2026-11-01T00:00:00.000Z',
+      to: '2026-11-02T00:00:00.000Z',
+      account: 'a-9',
+    });
+    expect(Object.fromEntries(s.call().url.searchParams)).toMatchObject({
+      site: 'shop',
+      account: 'a-9',
+    });
+    expect(s.call().url.searchParams.has('company')).toBe(false);
+  });
+
+  it('byContext asks /v1/errors/by-context with by, ISO times and the environment', async () => {
+    const answer = { items: [{ id: 'acme', errors: 4, groups: 2 }] };
+    const r = reader(() => Response.json(answer));
+    await expect(
+      r.client.byContext({
+        site: 'shop',
+        environment: 'production',
+        from: new Date('2026-11-01T00:00:00Z'),
+        to: '2026-11-02T00:00:00.000Z',
+        by: 'company',
+      }),
+    ).resolves.toEqual(answer);
+    const { url, init } = r.call();
+    expect(url.pathname).toBe('/v1/errors/by-context');
+    expect(init?.method).toBe('GET');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      site: 'shop',
+      environment: 'production',
+      from: '2026-11-01T00:00:00.000Z',
+      to: '2026-11-02T00:00:00.000Z',
+      by: 'company',
     });
   });
 

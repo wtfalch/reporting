@@ -167,6 +167,57 @@ describe('createErrorSender', () => {
     expect(sent[3]?.person).toBe('y'.repeat(256));
   });
 
+  it('sends context and retryOf from a report and from a capture context', async () => {
+    const h = harness();
+    await h.sender.send({
+      message: 'a',
+      runtime: 'server',
+      retryOf: 'req-1',
+      context: { company: 'acme', mcp: 'mcp_7', account: 'acc:9.x-y' },
+    });
+    await h.sender.capture(new Error('b'), { retryOf: 'req-2', context: { account: 'a1' } });
+    const sent = h.bodies().flatMap((b) => b.errors);
+    expect(sent.map((r) => r.retryOf)).toEqual(['req-1', 'req-2']);
+    expect(sent.map((r) => r.context)).toEqual([
+      { company: 'acme', mcp: 'mcp_7', account: 'acc:9.x-y' },
+      { account: 'a1' },
+    ]);
+  });
+
+  it('drops an invalid context id, keeps the valid ones, and still sends the report', async () => {
+    const h = harness();
+    await h.sender.send({
+      message: 'a',
+      runtime: 'server',
+      context: {
+        company: 'ann@example.com',
+        mcp: 'ok-1',
+        account: 'x'.repeat(129),
+        other: 'nope',
+        // biome-ignore lint/suspicious/noExplicitAny: a caller outside TypeScript
+      } as any,
+    });
+    await h.sender.send({ message: 'b', runtime: 'server', context: { company: '' } });
+    // biome-ignore lint/suspicious/noExplicitAny: a caller outside TypeScript
+    await h.sender.send({ message: 'c', runtime: 'server', context: { mcp: 7 as any } });
+    await h.sender.send({ message: 'd', runtime: 'server', context: { company: 'y'.repeat(128) } });
+    const sent = h.bodies().flatMap((b) => b.errors);
+    expect(sent.map((r) => r.message)).toEqual(['a', 'b', 'c', 'd']);
+    expect(sent[0]?.context).toEqual({ mcp: 'ok-1' });
+    expect(Object.keys(sent[1] ?? {})).not.toContain('context');
+    expect(Object.keys(sent[2] ?? {})).not.toContain('context');
+    expect(sent[3]?.context).toEqual({ company: 'y'.repeat(128) });
+  });
+
+  it('cuts nothing: a retryOf over 128 characters is cut like requestId, an empty one is dropped', async () => {
+    const h = harness();
+    await h.sender.send({ message: 'a', runtime: 'server', retryOf: '' });
+    await h.sender.send({ message: 'b', runtime: 'server', retryOf: 'r'.repeat(200) });
+    const sent = h.bodies().flatMap((b) => b.errors);
+    expect(Object.keys(sent[0] ?? {})).not.toContain('retryOf');
+    expect(sent[1]?.retryOf).toBe('r'.repeat(SENDER_LIMITS.requestId));
+  });
+
   it('drops a report with no message or a bad runtime, and a bad url, without throwing', async () => {
     const h = harness();
     await h.sender.send({ message: '', runtime: 'server' });
