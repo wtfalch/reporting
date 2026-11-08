@@ -178,6 +178,8 @@ describe('POST /v1/errors', () => {
         'resolvedAt',
         'resolvedBy',
         'people',
+        'contexts',
+        'retries',
       ].sort(),
     );
     const [row] = await t.query('select color, tenant_id from reporting_errors');
@@ -620,6 +622,250 @@ describe('GET /v1/errors/series', () => {
     expect((await q('from=2026-11-02T00:00:00Z&to=2026-11-01T00:00:00Z')).status).toBe(400);
     expect((await q('from=2026-11-02T00:00:00Z')).status).toBe(400);
     expect((await q('from=x&to=2026-11-02T00:00:00Z')).status).toBe(400);
+  });
+});
+
+const rep = (over: Record<string, unknown> = {}) => ({
+  kind: 'TypeError',
+  message: 'cannot read x',
+  runtime: 'server',
+  ...over,
+});
+type Group = {
+  kind: string;
+  fingerprint: string;
+  retries: number;
+  contexts: { company: string[]; mcp: string[]; account: string[] };
+};
+const groups = async (query: string) => {
+  const res = await get(`/v1/errors?${query}`);
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { items: Group[] }).items;
+};
+
+describe('error context ids', () => {
+  it('stores context and retryOf raw in data beside person, no other keys', async () => {
+    const ctx = { company: 'acme', mcp: 'mcp_1', account: 'acc:1.2' };
+    expect(
+      (await send(shopKey, [rep({ context: ctx, retryOf: 'req-1', person: 'u' })])).status,
+    ).toBe(202);
+    expect((await send(shopKey, [rep({ kind: 'Plain' })])).status).toBe(202);
+    const rows = await t.query('select kind, data from reporting_events order by kind');
+    const data = (kind: string) =>
+      rows.find((r) => r.kind === kind)?.data as Record<string, unknown>;
+    expect(data('error.type_error')).toMatchObject({
+      contextCompany: 'acme',
+      contextMcp: 'mcp_1',
+      contextAccount: 'acc:1.2',
+    });
+    expect(data('error.type_error').context).toBeUndefined();
+    expect(data('error.type_error').retryOf).toBe('req-1');
+    expect(data('error.type_error').person).toMatch(/^[0-9a-f]{32}$/);
+    expect(Object.keys(data('error.plain')).sort()).toEqual(['fingerprint', 'runtime']);
+  });
+
+  it('refuses an invalid context id, an extra key or a bad retryOf with invalid_request', async () => {
+    const bad: Record<string, unknown>[] = [
+      { context: { company: 'ann@example.com' } },
+      { context: { company: 'has space' } },
+      { context: { mcp: '' } },
+      { context: { account: 'x'.repeat(129) } },
+      { context: { company: 'ok', region: 'eu' } },
+      { context: 'acme' },
+      { retryOf: '' },
+      { retryOf: 'r'.repeat(129) },
+    ];
+    for (const over of bad) {
+      const res = await send(shopKey, [rep(over)]);
+      expect(res.status, JSON.stringify(over)).toBe(400);
+      expect(await res.json()).toMatchObject({ error: { code: 'invalid_request' } });
+    }
+    expect((await t.query('select 1 from reporting_events')).length).toBe(0);
+    const edge = await send(shopKey, [rep({ context: { company: 'x'.repeat(128) } })]);
+    expect(edge.status).toBe(202);
+  });
+
+  it('lists contexts per group (sorted, deduped, at most 20 per key) and counts retries', async () => {
+    await send(shopKey, [
+      rep({ context: { company: 'zeta', mcp: 'm1' } }),
+      rep({ context: { company: 'acme', mcp: 'm1' }, retryOf: 'r1' }),
+      rep({ retryOf: 'r2' }),
+      rep({ kind: 'Other' }),
+    ]);
+    const batch = Array.from({ length: 25 }, (_, i) =>
+      rep({ kind: 'Many', context: { account: `acc-${String(i).padStart(2, '0')}` } }),
+    );
+    await send(shopKey, batch.slice(0, 20));
+    await send(shopKey, batch.slice(20));
+    const byKind = Object.fromEntries((await groups('site=shop')).map((g) => [g.kind, g]));
+    expect(byKind.TypeError?.contexts).toEqual({
+      company: ['acme', 'zeta'],
+      mcp: ['m1'],
+      account: [],
+    });
+    expect(byKind.TypeError?.retries).toBe(2);
+    expect(byKind.Other).toMatchObject({
+      retries: 0,
+      contexts: { company: [], mcp: [], account: [] },
+    });
+    const many = byKind.Many?.contexts.account ?? [];
+    expect(many).toHaveLength(20);
+    expect(many[0]).toBe('acc-00');
+    expect(many[19]).toBe('acc-19');
+    const one = (await (
+      await get(`/v1/errors/${byKind.TypeError?.fingerprint}?site=shop`)
+    ).json()) as Group;
+    expect(one.contexts.company).toEqual(['acme', 'zeta']);
+    expect(one.retries).toBe(2);
+  });
+
+  it('filters the list to groups with an event carrying the id, all given ids together', async () => {
+    await send(shopKey, [
+      rep({ context: { company: 'acme', mcp: 'm1' } }),
+      rep({ kind: 'B', context: { company: 'acme', mcp: 'm2' } }),
+      rep({ kind: 'C', context: { company: 'globex', mcp: 'm1' } }),
+      rep({ kind: 'D' }),
+    ]);
+    await send(blogKey, [rep({ kind: 'E', context: { company: 'acme' } })]);
+    const kinds = async (q: string) => (await groups(`site=shop&${q}`)).map((g) => g.kind).sort();
+    expect(await kinds('company=acme')).toEqual(['B', 'TypeError']);
+    expect(await kinds('mcp=m1')).toEqual(['C', 'TypeError']);
+    expect(await kinds('company=acme&mcp=m1')).toEqual(['TypeError']);
+    expect(await kinds('company=nobody')).toEqual([]);
+    expect(await kinds('')).toEqual(['B', 'C', 'D', 'TypeError']);
+  });
+
+  it('pages a filtered list with a cursor and keeps state and environment filters', async () => {
+    clock = new Date('2026-11-02T12:00:00.000Z');
+    for (const kind of ['A', 'B', 'C']) {
+      await send(shopKey, [rep({ kind, context: { company: 'acme' } })]);
+      clock = new Date(clock.getTime() + 60_000);
+    }
+    await send(shopStageKey, [rep({ kind: 'S', context: { company: 'acme' } })]);
+    const first = (await (await get('/v1/errors?site=shop&company=acme&limit=2')).json()) as {
+      items: Group[];
+      next: string | null;
+    };
+    expect(first.items.map((g) => g.kind)).toEqual(['S', 'C']);
+    const second = (await (
+      await get(`/v1/errors?site=shop&company=acme&limit=2&after=${first.next}`)
+    ).json()) as { items: Group[]; next: string | null };
+    expect(second.items.map((g) => g.kind)).toEqual(['B', 'A']);
+    expect(second.next).toBeNull();
+    const prod = await groups('site=shop&company=acme&environment=production');
+    expect(prod.map((g) => g.kind).sort()).toEqual(['A', 'B', 'C']);
+    expect(await groups('site=shop&company=acme&state=resolved')).toEqual([]);
+  });
+
+  it('filters the detail (404 without the id) and the series', async () => {
+    const at = (h: number, m: number) => new Date(Date.UTC(2026, 10, 2, h, m)).toISOString();
+    await send(shopKey, [
+      rep({ occurredAt: at(9, 10), context: { company: 'acme' } }),
+      rep({ occurredAt: at(9, 20), context: { company: 'globex' } }),
+      rep({ occurredAt: at(10, 20), context: { company: 'acme' } }),
+    ]);
+    const fp = (await groups('site=shop'))[0]?.fingerprint;
+    expect((await get(`/v1/errors/${fp}?site=shop&company=acme`)).status).toBe(200);
+    expect((await get(`/v1/errors/${fp}?site=shop&company=nobody`)).status).toBe(404);
+    const series = async (q: string) =>
+      (
+        (await (
+          await get(`/v1/errors/series?site=shop&from=${at(9, 0)}&to=${at(11, 0)}&${q}`)
+        ).json()) as { buckets: { errors: number }[] }
+      ).buckets.map((b) => b.errors);
+    expect(await series('company=acme')).toEqual([1, 1]);
+    expect(await series('company=globex')).toEqual([1, 0]);
+    expect(await series('')).toEqual([2, 1]);
+  });
+
+  it('refuses a bad company, mcp or account on list, series and detail with 400', async () => {
+    const range = 'from=2026-11-02T00:00:00Z&to=2026-11-02T01:00:00Z';
+    const fp = '0123456789abcdef0123456789abcdef';
+    for (const key of ['company', 'mcp', 'account']) {
+      for (const value of ['a%40b.com', 'a%20b', 'x'.repeat(129)]) {
+        const q = `${key}=${value}`;
+        expect((await get(`/v1/errors?site=shop&${q}`)).status, q).toBe(400);
+        expect((await get(`/v1/errors/series?site=shop&${range}&${q}`)).status, q).toBe(400);
+        expect((await get(`/v1/errors/${fp}?site=shop&${q}`)).status, q).toBe(400);
+      }
+    }
+    const res = await get('/v1/errors?site=shop&company=a%40b.com');
+    expect(await res.json()).toMatchObject({ error: { code: 'invalid_request' } });
+  });
+});
+
+describe('GET /v1/errors/by-context', () => {
+  const at = (d: number, h: number) => new Date(Date.UTC(2026, 10, d, h)).toISOString();
+  const byUrl = (by: string, rest = '') =>
+    `/v1/errors/by-context?site=shop&from=${at(1, 0)}&to=${at(3, 0)}&by=${by}${rest}`;
+
+  it('counts errors and groups per id, most errors first, within the window and site', async () => {
+    await send(shopKey, [
+      rep({ occurredAt: at(2, 1), context: { company: 'acme', mcp: 'm1' } }),
+      rep({ occurredAt: at(2, 2), context: { company: 'acme' } }),
+      rep({ occurredAt: at(2, 3), kind: 'B', context: { company: 'acme' } }),
+      rep({ occurredAt: at(2, 4), context: { company: 'globex' } }),
+      rep({ occurredAt: at(2, 5), kind: 'B', context: { company: 'initech' } }),
+      rep({ occurredAt: at(2, 6) }),
+      rep({ occurredAt: at(2, 7), context: { company: 'late' } }),
+    ]);
+    await send(shopStageKey, [rep({ occurredAt: at(2, 5), context: { company: 'globex' } })]);
+    await send(blogKey, [rep({ occurredAt: at(2, 5), context: { company: 'acme' } })]);
+    clock = new Date(at(5, 0));
+    await send(shopKey, [rep({ occurredAt: at(4, 1), context: { company: 'late' } })]);
+    const res = await get(byUrl('company', '&environment=production'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: unknown[] };
+    expect(body.items).toEqual([
+      { id: 'acme', errors: 3, groups: 2 },
+      { id: 'globex', errors: 1, groups: 1 },
+      { id: 'initech', errors: 1, groups: 1 },
+      { id: 'late', errors: 1, groups: 1 },
+    ]);
+    expect(await (await get(byUrl('mcp'))).json()).toEqual({
+      items: [{ id: 'm1', errors: 1, groups: 1 }],
+    });
+    const all = (await (await get(byUrl('company'))).json()) as {
+      items: { id: string; errors: number }[];
+    };
+    expect(all.items.find((i) => i.id === 'globex')?.errors).toBe(2);
+    const narrow = await get(
+      `/v1/errors/by-context?site=shop&from=${at(2, 4)}&to=${at(2, 6)}&by=company`,
+    );
+    expect(((await narrow.json()) as { items: { id: string }[] }).items.map((i) => i.id)).toEqual([
+      'globex',
+      'initech',
+    ]);
+  });
+
+  it('returns at most 100 ids', async () => {
+    const reports = Array.from({ length: 105 }, (_, i) =>
+      rep({ occurredAt: at(2, 1), context: { account: `a-${String(i).padStart(3, '0')}` } }),
+    );
+    for (let i = 0; i < reports.length; i += 20) await send(shopKey, reports.slice(i, i + 20));
+    const body = (await (await get(byUrl('account'))).json()) as { items: { id: string }[] };
+    expect(body.items).toHaveLength(100);
+    expect(body.items[0]?.id).toBe('a-000');
+  });
+
+  it('refuses a bad by, a window over 31 days or reversed, a missing time, and a missing site', async () => {
+    expect((await get(byUrl('person'))).status).toBe(400);
+    expect(
+      (await get(`/v1/errors/by-context?site=shop&from=${at(1, 0)}&to=${at(3, 0)}`)).status,
+    ).toBe(400);
+    const q = (rest: string) => get(`/v1/errors/by-context?site=shop&by=mcp&${rest}`);
+    expect((await q('from=2026-10-01T00:00:00Z&to=2026-11-02T00:00:00Z')).status).toBe(400);
+    expect((await q('from=2026-10-02T00:00:00Z&to=2026-11-02T00:00:00Z')).status).toBe(200);
+    expect((await q('from=2026-11-02T00:00:00Z&to=2026-11-01T00:00:00Z')).status).toBe(400);
+    expect((await q('from=2026-11-02T00:00:00Z')).status).toBe(400);
+    expect((await get(`/v1/errors/by-context?from=${at(1, 0)}&to=${at(3, 0)}&by=mcp`)).status).toBe(
+      400,
+    );
+  });
+
+  it('needs the operator key, as the other reads do', async () => {
+    expect((await get(byUrl('company'), 'wrong')).status).toBe(401);
+    expect((await get(byUrl('company'), shopKey)).status).toBe(401);
   });
 });
 
