@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.1.0 - 2026-11-08
+
+Error reports carry opaque context ids and a retry link; the service filters
+and counts by them (`@wtfalch/reporting-service` 0.3.0).
+
+- `ErrorReport.context` and `CaptureContext.context`: `{ company?, mcp?,
+  account? }`, each 1 to 128 characters of `A-Za-z0-9_.:-`, no other keys.
+  The sender drops an invalid id and still sends the report. The backend
+  refuses an invalid one with `invalid_request`.
+- `ErrorReport.retryOf` and `CaptureContext.retryOf`: the `requestId` of the
+  report this one retries, same rule as `requestId`.
+- `ErrorGroup.contexts` (distinct ids per key, at most 20, from events in
+  retention) and `ErrorGroup.retries` (events carrying `retryOf`).
+- `company`, `mcp` and `account` on `ListErrorsOptions`, `GetErrorOptions`
+  and `ErrorSeriesOptions` filter by id.
+- `reader.byContext({ from, to, by, environment? })`: errors and groups per id,
+  at most 100, most errors first, window at most 31 days.
+- Service: new `GET /v1/errors/by-context`; `company`, `mcp` and `account`
+  query params on `GET /v1/errors`, `/v1/errors/series` and `/v1/errors/:fp`.
+  No migration.
+- Context ids are org-chosen opaque ids. Never an email or a name.
+
 ## 2.0.0 - 2026-11-05
 
 `@wtfalch/reporting` is now the client SDK for a company's reporting backend
