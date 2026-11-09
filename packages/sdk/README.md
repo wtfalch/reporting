@@ -55,6 +55,12 @@ try {
   how many people hit it. Never an email or a name. The backend keeps only a
   hash of it per site and environment. One that is empty, longer than 256
   characters or not a string is left off, and the report is still sent.
+- `context` (`{ company, mcp, account }`) holds opaque ids the screens filter
+  and count by: 1 to 128 characters of `A-Za-z0-9_.:-` each, no other keys.
+  They are ids your organisation chooses, stored as sent (not hashed), so they
+  must never be an email or a name. An invalid id is left off and the report
+  is still sent; the backend refuses a report with an invalid one.
+  `retryOf` is the `requestId` of the report this one retries.
 - The sender redacts nothing; the backend redacts on ingest. Take out any
   secret you know of (a login, a password) before you put it in a message.
   Where in the app the error happened belongs in the message or the stack.
@@ -78,6 +84,13 @@ const { buckets } = await reader.series({ site: appKey, from, to, bucket: 60 });
 A group's `people` is how many different people hit it, counted from the
 reports that named a `person` and are still within event retention; `null`
 when none of them named one.
+
+`list`, `get` and `series` take `company`, `mcp` and `account` to keep what
+carries that id. A group's `contexts` lists the ids seen on it (at most 20 per
+key) and `retries` counts the events that carry `retryOf`.
+`reader.byContext({ from, to, by: 'company' | 'mcp' | 'account' })` returns
+`{ items: [{ id, errors, groups }] }`, at most 100, most errors first, over at
+most 31 days.
 
 A failure rejects with `ReportingApiError`, which carries `status` and a
 typed `code` (`ReportingErrorCode`: `invalid_request`, `unauthorized`,

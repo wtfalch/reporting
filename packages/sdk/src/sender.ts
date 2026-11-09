@@ -1,5 +1,5 @@
 import { DEFAULT_TIMEOUT_MS, errorName } from './transport.js';
-import type { DeployColor, ErrorReport, ErrorRuntime } from './types.js';
+import type { DeployColor, ErrorContext, ErrorReport, ErrorRuntime } from './types.js';
 
 /** The backend's limits on one `POST /v1/errors`: 20 reports, 64 KB of body. */
 export const SENDER_LIMITS = {
@@ -15,7 +15,13 @@ export const SENDER_LIMITS = {
   requestId: 128,
   /** The backend (reporting#103) takes 1-256 characters and stores only a hash. */
   person: 256,
+  /** One context id: 1-128 characters of `CONTEXT_ID_PATTERN`. */
+  contextId: 128,
 } as const;
+
+/** The same rule the backend applies to `context` values. */
+const CONTEXT_ID_PATTERN = /^[A-Za-z0-9_.:-]+$/;
+const CONTEXT_KEYS = ['company', 'mcp', 'account'] as const;
 
 export interface ErrorSenderOptions {
   /** The company's reporting backend, `REPORTING_URL`: `https://reporting.<domain>`. */
@@ -47,6 +53,8 @@ export interface CaptureContext {
   release?: string;
   color?: DeployColor;
   requestId?: string;
+  retryOf?: string;
+  context?: ErrorContext;
   /** The signed-in person's issuer id or a session id; never an email or a name. */
   person?: string;
   /** Overrides the class name read from the thrown value. */
@@ -92,6 +100,24 @@ function messageOf(error: unknown, kind: string): string {
   } catch {
     return kind;
   }
+}
+
+/** Keeps the context ids that pass the backend's rule and drops the rest: a cut id would name another company. */
+function contextOf(value: unknown): ErrorContext | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const out: ErrorContext = {};
+  for (const key of CONTEXT_KEYS) {
+    const id = (value as Record<string, unknown>)[key];
+    if (
+      typeof id === 'string' &&
+      id.length >= 1 &&
+      id.length <= SENDER_LIMITS.contextId &&
+      CONTEXT_ID_PATTERN.test(id)
+    ) {
+      out[key] = id;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 const encoder = new TextEncoder();
@@ -156,6 +182,10 @@ export function createErrorSender(options: ErrorSenderOptions): ErrorSender {
     if (color === 'blue' || color === 'green') out.color = color;
     const requestId = bounded(report.requestId, SENDER_LIMITS.requestId);
     if (requestId) out.requestId = requestId;
+    const retryOf = bounded(report.retryOf, SENDER_LIMITS.requestId);
+    if (retryOf) out.retryOf = retryOf;
+    const context = contextOf(report.context);
+    if (context) out.context = context;
     // Dropped, not cut: a cut id would count as a different person.
     const person =
       typeof report.person === 'string' && report.person.length <= SENDER_LIMITS.person
@@ -275,6 +305,8 @@ export function createErrorSender(options: ErrorSenderOptions): ErrorSender {
           release: context.release,
           color: context.color,
           requestId: context.requestId,
+          retryOf: context.retryOf,
+          context: context.context,
           person: context.person,
         });
       } catch {

@@ -1,5 +1,7 @@
 import { ReportingApiError, createTransport } from './transport.js';
 import type {
+  ByContext,
+  ByContextOptions,
   ErrorGroup,
   ErrorSeries,
   ErrorSeriesOptions,
@@ -29,6 +31,8 @@ export interface ErrorReader {
   setState(input: SetErrorStateInput): Promise<ErrorGroup>;
   /** Occurrences per bucket from `from` to `to` (at most 31 days), every bucket present. */
   series(options: ErrorSeriesOptions): Promise<ErrorSeries>;
+  /** Errors per `company`, `mcp` or `account` id from `from` to `to` (at most 31 days): at most 100 ids, most errors first. */
+  byContext(options: ByContextOptions): Promise<ByContext>;
 }
 
 function query(values: Record<string, string | number | undefined>): string {
@@ -84,12 +88,20 @@ export function createErrorReader(options: ErrorReaderOptions): ErrorReader {
           search: o.search,
           limit: o.limit,
           after: o.after,
+          company: o.company,
+          mcp: o.mcp,
+          account: o.account,
         })}`,
       ),
     get: async (o) =>
       call<ErrorGroup>(
         'GET',
-        `/v1/errors/${encodeURIComponent(checkFingerprint(o.fingerprint))}?${query({ site: o.site })}`,
+        `/v1/errors/${encodeURIComponent(checkFingerprint(o.fingerprint))}?${query({
+          site: o.site,
+          company: o.company,
+          mcp: o.mcp,
+          account: o.account,
+        })}`,
       ),
     setState: async (input) =>
       call<ErrorGroup>(
@@ -111,6 +123,20 @@ export function createErrorReader(options: ErrorReaderOptions): ErrorReader {
           to: iso(o.to),
           bucket: o.bucket,
           fingerprint: o.fingerprint,
+          company: o.company,
+          mcp: o.mcp,
+          account: o.account,
+        })}`,
+      ),
+    byContext: (o) =>
+      call<ByContext>(
+        'GET',
+        `/v1/errors/by-context?${query({
+          site: o.site,
+          environment: o.environment,
+          from: iso(o.from),
+          to: iso(o.to),
+          by: o.by,
         })}`,
       ),
   };

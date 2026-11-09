@@ -1,6 +1,6 @@
 {
   "name": "@wtfalch/reporting",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "module",
   "license": "MIT",
   "description": "Client SDK for the reporting backend a company runs for itself: send errors from a server or a Worker, read them back.",

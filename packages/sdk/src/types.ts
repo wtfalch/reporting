@@ -15,6 +15,14 @@ export interface Actor {
   id: string;
 }
 
+export interface ErrorContext {
+  company?: string;
+  mcp?: string;
+  account?: string;
+}
+
+export type ContextKey = keyof ErrorContext;
+
 /**
  * What a sender sends. Never a site, environment or tenant: those come from
  * the site key. Where in the app the error happened belongs in the message or
@@ -29,6 +37,10 @@ export interface ErrorReport {
   release?: string;
   color?: DeployColor;
   requestId?: string;
+  /** The `requestId` of the report this one retries: the link from a retry back to the first try. */
+  retryOf?: string;
+  /** Opaque ids the screens filter and count by. Org-chosen ids, 1-128 characters of `A-Za-z0-9_.:-`; never an email or a name. Stored raw. */
+  context?: ErrorContext;
   /** The signed-in person's issuer id or a session id (1-256 characters); the backend stores only a hash. Never an email or a name. */
   person?: string;
   /** ISO time. The sender stamps the time of `send` when absent. */
@@ -58,6 +70,10 @@ export interface ErrorGroup {
   /** How many different people hit it, from the reports that named a `person`
    * and are still within event retention; `null` when none of them named one. */
   people: number | null;
+  /** Distinct context ids on the group's events in retention, sorted, at most 20 per key. */
+  contexts: { company: string[]; mcp: string[]; account: string[] };
+  /** How many of the group's events in retention are retries (carry `retryOf`). */
+  retries: number;
 }
 
 /** `GET /v1/errors`: newest `lastSeenAt` first. `next` is an opaque cursor, or null on the last page. */
@@ -77,11 +93,18 @@ export interface ListErrorsOptions {
   limit?: number;
   /** The `next` of the previous page. */
   after?: string;
+  /** Keep groups with an event carrying this id. */
+  company?: string;
+  mcp?: string;
+  account?: string;
 }
 
 export interface GetErrorOptions {
   site: string;
   fingerprint: string;
+  company?: string;
+  mcp?: string;
+  account?: string;
 }
 
 export interface SetErrorStateInput {
@@ -99,6 +122,23 @@ export interface ErrorSeriesOptions {
   /** Minutes per bucket: 60 (the default) or 1440. */
   bucket?: 60 | 1440;
   fingerprint?: string;
+  company?: string;
+  mcp?: string;
+  account?: string;
+}
+
+export interface ByContextOptions {
+  site: string;
+  environment?: ReportingEnvironment;
+  /** At most 31 days from `from`. */
+  from: Date | string;
+  to: Date | string;
+  by: ContextKey;
+}
+
+/** `GET /v1/errors/by-context`: at most 100 ids, most errors first. */
+export interface ByContext {
+  items: { id: string; errors: number; groups: number }[];
 }
 
 export interface ErrorSeries {

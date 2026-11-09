@@ -34,7 +34,16 @@ export const INGEST_LIMITS = {
   release: 128,
   requestId: LIMITS.requestId,
   person: 256,
+  /** One context id (`company`, `mcp`, `account`): 1-128 characters of `CONTEXT_ID_PATTERN`. */
+  contextId: 128,
 } as const;
+
+/** Context ids are org-chosen opaque ids, never an email or a name. */
+export const CONTEXT_ID_PATTERN = /^[A-Za-z0-9_.:-]+$/;
+export const CONTEXT_KEYS = ['company', 'mcp', 'account'] as const;
+export type ContextKey = (typeof CONTEXT_KEYS)[number];
+
+const contextId = z.string().min(1).max(INGEST_LIMITS.contextId).regex(CONTEXT_ID_PATTERN);
 
 /** How far an `occurredAt` may sit from the moment the batch arrives; outside
  * it the arrival time is used. A sender's clock is not trusted to move a
@@ -58,6 +67,16 @@ export const errorReportSchema = z.strictObject({
   release: z.string().min(1).max(INGEST_LIMITS.release).optional(),
   color: z.enum(COLORS).optional(),
   requestId: z.string().min(1).max(INGEST_LIMITS.requestId).optional(),
+  /** The report this one retries; same rule as `requestId`. */
+  retryOf: z.string().min(1).max(INGEST_LIMITS.requestId).optional(),
+  /** Opaque ids the screens filter and count by. Stored raw, beside `person`. */
+  context: z
+    .strictObject({
+      company: contextId.optional(),
+      mcp: contextId.optional(),
+      account: contextId.optional(),
+    })
+    .optional(),
   occurredAt: z.iso.datetime({ offset: true }).optional(),
   /** Who hit it, as the sender knows them: the signed-in person's issuer id,
    * or a session id. Never stored: the host keeps a one-way hash of it per
@@ -99,6 +118,16 @@ export interface ErrorGroup {
    * (`ErrorReport.person`) and are still within event retention; `null`
    * when none of them did. */
   readonly people: number | null;
+  /** Distinct context ids seen on the group's events in retention, sorted, at most 20 per key. */
+  readonly contexts: Readonly<Record<ContextKey, readonly string[]>>;
+  /** Events in retention that carry `retryOf`. */
+  readonly retries: number;
+}
+
+export interface ContextCount {
+  readonly id: string;
+  readonly errors: number;
+  readonly groups: number;
 }
 
 export interface ErrorsList {

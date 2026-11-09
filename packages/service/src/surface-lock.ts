@@ -26,6 +26,10 @@ import type {
   AuditEvent,
   AuditEventRow,
   Baseline,
+  ByContextOptions,
+  ContextCount,
+  ContextFilter,
+  ContextKey,
   CreateAlertsOptions,
   CreateReportingHandlerOptions,
   ErrorGroup,
@@ -76,6 +80,10 @@ export type LockedSurface = [
   ReleaseInput,
   AuditEvent,
   AuditEventRow,
+  ByContextOptions,
+  ContextCount,
+  ContextFilter,
+  ContextKey,
   CreateReportingHandlerOptions,
   ErrorGroup,
   ErrorReport,
@@ -103,8 +111,8 @@ export type LockedSurface = [
   Tx,
 ];
 
-/** The surface is 43 names. Changing it is a breaking change for the host. */
-export type LockedSurfaceSize = 43;
+/** The surface is 47 names. Changing it is a breaking change for the host. */
+export type LockedSurfaceSize = 47;
 
 /** The runtime exports outside `index.ts`: the subpath
  * `@wtfalch/reporting-service/migrations-dir`. */

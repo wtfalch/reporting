@@ -129,7 +129,12 @@ export async function ingestErrors(
                 ...(report.person
                   ? { person: personHash(key.site, key.environment, report.person) }
                   : {}),
-              },
+                // Flat keys: reporting_events_data_flat_check refuses nested data.
+                ...(report.context?.company ? { contextCompany: report.context.company } : {}),
+                ...(report.context?.mcp ? { contextMcp: report.context.mcp } : {}),
+                ...(report.context?.account ? { contextAccount: report.context.account } : {}),
+                ...(report.retryOf ? { retryOf: report.retryOf } : {}),
+              } as Record<string, string | number | boolean | null>,
             });
           },
           release: null,

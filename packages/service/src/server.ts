@@ -11,7 +11,15 @@ import { readTextCapped } from './body.js';
 import { ServiceError, errorResponse, jsonResponse } from './errors.js';
 import { type IngestOptions, ingestErrors } from './ingest.js';
 import { type Logger, consoleLogger, errorName } from './log.js';
-import { MAX_SERIES_DAYS, errorSeries, getError, listErrors, params, setState } from './reads.js';
+import {
+  MAX_SERIES_DAYS,
+  errorSeries,
+  errorsByContext,
+  getError,
+  listErrors,
+  params,
+  setState,
+} from './reads.js';
 import { INGEST_LIMITS, ingestBodySchema, stateBodySchema } from './schema.js';
 import {
   type MintedSiteKey,
@@ -92,7 +100,7 @@ async function readJson(request: Request, maxBytes: number): Promise<unknown> {
  * - `POST /v1/site-keys`, `DELETE /v1/site-keys/:id` -- operator key.
  * - `POST /v1/errors` -- a site key as the bearer. An unknown or revoked key
  *   is `401` at once: a server caller learns it, and the SDK does not retry.
- * - `GET /v1/errors`, `GET /v1/errors/series`, `GET /v1/errors/:fingerprint`,
+ * - `GET /v1/errors`, `GET /v1/errors/series`, `GET /v1/errors/by-context`, `GET /v1/errors/:fingerprint`,
  *   `POST /v1/errors/:fingerprint/state` -- operator key.
  * - `GET /v1/alert-rules?site`, `PUT /v1/alert-rules`, `POST /v1/releases` --
  *   operator key: the error emails a company chose, and when a release went
@@ -224,6 +232,7 @@ export function createReportingHandler(
         search: search || undefined,
         limit: params.limit(url),
         after,
+        context: params.context(url),
       }),
     );
   }
@@ -235,16 +244,29 @@ export function createReportingHandler(
     const to = params.time(url, 'to');
     const bucketMinutes = params.bucket(url);
     const fingerprint = params.fingerprint(url);
+    const context = params.context(url);
     if (to <= from || to.getTime() - from.getTime() > MAX_SERIES_DAYS * 24 * 60 * 60_000) {
       throw new ServiceError('invalid_request', 'to must be after from, at most 31 days later');
     }
     return jsonResponse(
-      await errorSeries(db, { site, environment, from, to, bucketMinutes, fingerprint }),
+      await errorSeries(db, { site, environment, from, to, bucketMinutes, fingerprint, context }),
     );
   }
 
+  async function byContext(url: URL): Promise<Response> {
+    const site = params.site(url);
+    const environment = params.environment(url);
+    const from = params.time(url, 'from');
+    const to = params.time(url, 'to');
+    const by = params.by(url);
+    if (to <= from || to.getTime() - from.getTime() > MAX_SERIES_DAYS * 24 * 60 * 60_000) {
+      throw new ServiceError('invalid_request', 'to must be after from, at most 31 days later');
+    }
+    return jsonResponse({ items: await errorsByContext(db, { site, environment, from, to, by }) });
+  }
+
   async function detail(url: URL, fingerprint: string): Promise<Response> {
-    const group = await getError(db, params.site(url), fingerprint);
+    const group = await getError(db, params.site(url), fingerprint, params.context(url));
     if (!group) throw new ServiceError('not_found', 'No such error group');
     return jsonResponse(group);
   }
@@ -305,6 +327,9 @@ export function createReportingHandler(
     }
     if (path === '/v1/errors/series' && method === 'GET') {
       return operator(request, () => series(url), 'reporting: error series failed');
+    }
+    if (path === '/v1/errors/by-context' && method === 'GET') {
+      return operator(request, () => byContext(url), 'reporting: error by-context failed');
     }
     const stateOf = ERROR_STATE_PATH.exec(path)?.[1];
     if (stateOf !== undefined && method === 'POST') {
