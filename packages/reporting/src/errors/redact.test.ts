@@ -292,6 +292,13 @@ describe('redactPii: more credential shapes', () => {
     expect(redactPii('token=expected')).toBe('token=[redacted: secret]');
   });
 
+  it('does not re-match the tail of a compound label already redacted', () => {
+    expect(redactPii('client_secret: abc123')).toBe('client_secret: [redacted: secret]');
+    expect(redactPii('refresh_token: abc123')).toBe('refresh_token: [redacted: secret]');
+    expect(redactPii('{"access_token":"abc123"}')).toBe('{"access_token":[redacted: secret]}');
+    expect(redactPii('auth_token=abc123')).toBe('auth_token=[redacted: secret]');
+  });
+
   it('keeps scheme and user in a URL with a password', () => {
     expect(redactPii('postgresql://u:pw@10.0.0.1/db')).toBe(
       'postgresql://u:[redacted: password]@10.0.0.1/db',

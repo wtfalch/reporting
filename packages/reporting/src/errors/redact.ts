@@ -119,7 +119,7 @@ const PII_PATTERNS: readonly [RegExp, string][] = [
   // alone: it is the useful part of the message, and a value with a digit or
   // symbol, a quoted one, or any `=` form is still taken.
   [
-    /((?:token|secret)["']?\s*(?:=|%3D|:(?!\s*[A-Za-z]{1,20}(?![^\s&;,'"}])))\s*)(?:"(?:[^"\\]|\\.){0,512}"|'[^']{0,512}'|[^\s&;,'"}]+)/gi,
+    /((?<!client_|access_|refresh_)(?:token|secret)["']?\s*(?:=|%3D|:(?!\s*[A-Za-z]{1,20}(?![^\s&;,'"}])))\s*)(?:"(?:[^"\\]|\\.){0,512}"|'[^']{0,512}'|[^\s&;,'"}]+)/gi,
     '$1[redacted: secret]',
   ],
   // JWT: three base64url segments, the first two starting with an encoded `{"`.
