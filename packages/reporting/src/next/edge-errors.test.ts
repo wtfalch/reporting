@@ -141,10 +141,18 @@ describe('createEdgeErrorIngestCollector (edgeErrorIngestHandler)', () => {
     expect(reporting.rows).toHaveLength(0);
   });
 
-  it('204s and drops the report when the secret is a different length (no throw from timingSafeEqual)', async () => {
+  it('204s and drops the report when the secret is a different length', async () => {
     const reporting = createFakeReporting({ site: 'app' });
     const collector = createEdgeErrorIngestCollector({ reporting, secret: SECRET });
     const res = await collector.handle(post(validBody, { 'x-reporting-edge-secret': 'x' }));
+    expect(res.status).toBe(204);
+    expect(reporting.rows).toHaveLength(0);
+  });
+
+  it('204s and drops the report when the configured secret holds a lone surrogate', async () => {
+    const reporting = createFakeReporting({ site: 'app' });
+    const collector = createEdgeErrorIngestCollector({ reporting, secret: 'bad\ud800secret' });
+    const res = await collector.handle(post(validBody, { 'x-reporting-edge-secret': 'anything' }));
     expect(res.status).toBe(204);
     expect(reporting.rows).toHaveLength(0);
   });
