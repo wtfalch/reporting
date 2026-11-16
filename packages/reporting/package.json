@@ -82,5 +82,8 @@
     "typescript": "^5.9.0",
     "vitest": "^4.1.6",
     "zod": "^4.5.4"
+  },
+  "dependencies": {
+    "@wtfalch/utils": "0.1.0"
   }
 }
