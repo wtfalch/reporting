@@ -27,6 +27,16 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to publish (for example v2.0.0)'
+        required: true
+        type: string
+
+concurrency:
+  group: reporting-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -34,9 +44,18 @@ permissions:
 
 jobs:
   publish:
+    # Retry workflow fixes from main while building the original immutable tag.
+    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+      - name: requested tag is the checked-out commit
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -50,7 +69,9 @@ jobs:
         id: pkg
         run: node .github/scripts/find-publishable-package.mjs
       - name: an npm that speaks trusted publishing
-        run: npm install -g npm@latest && npm --version
+        # The package checker consumes npm 11's pack JSON array. npm 12 changed
+        # its shape; do not change the release toolchain implicitly.
+        run: npm install -g npm@11.17.0 && npm --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       # The same check CI runs: the tarball is dist and nothing else. A
@@ -61,7 +82,7 @@ jobs:
       # release of the wrong thing, and this is where it stops.
       - name: tag matches package.json
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${RELEASE_TAG#v}"
           PKG="${{ steps.pkg.outputs.version }}"
           [ "$TAG" = "$PKG" ] || { echo "tag v$TAG != package $PKG"; exit 1; }
       # `npm publish` directly rather than `pnpm publish`: the OIDC exchange

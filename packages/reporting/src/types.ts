@@ -128,6 +128,13 @@ export interface CaptureContext {
   readonly tenantId?: string | null;
   readonly requestId?: string | null;
   readonly release?: string | null;
+  /**
+   * The deploy color of the process that threw. Absent, the capture stamps
+   * this process's own (`REPORTING_COLOR`); a host that captures on another
+   * app's behalf -- the reporting service's ingest -- passes the sender's,
+   * or `null`, so the host's own color never lands on another app's group.
+   */
+  readonly color?: 'blue' | 'green' | null;
   /** Overrides `errorKind(error)` when the caller already knows the class name better than the thrown value can say — a JSON-serialised browser report, say. */
   readonly kind?: string;
 }

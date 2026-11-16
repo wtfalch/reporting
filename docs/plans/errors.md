@@ -142,3 +142,15 @@ and rebinds `src/instrumentation.ts`, both error boundaries,
 
 Source maps and symbolication. Traces. An alerting rule engine — `onAlert` is
 still the host's hook, and a pager is a later decision now that nothing pages.
+
+## Context ids and retries
+
+An `error.*` event row stores the report's `context` ids and `retryOf` as flat
+keys in `reporting_events.data`: `contextCompany`, `contextMcp`,
+`contextAccount` and `retryOf`, beside `person`. They are flat because
+`reporting_events_data_flat_check` refuses nested objects in `data`, and no
+migration relaxes it. The wire shape (`ErrorReport.context`, `ErrorGroup.contexts`)
+is nested; only storage is flat. Ids are raw, not hashed, so they are
+org-chosen opaque ids and never an email or a name. A filtered
+`GET /v1/errors` pages `reporting_errors` itself (core's `errorsPage` has no
+filter hook) and keeps groups with an event carrying every id asked for.
