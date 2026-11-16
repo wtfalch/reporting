@@ -1,5 +1,7 @@
 name: PR check
 # The repo's own gate, as its tag CI runs it: `pnpm check`.
+# GitHub's runner, not puzl: the org's self-hosted runner group does not serve public repos
+# (allows_public_repositories: false), and public repos use no paid Actions minutes.
 # Posts the status `tests` on the pull request head, which the harness gate waits for.
 on: pull_request
 concurrency:
