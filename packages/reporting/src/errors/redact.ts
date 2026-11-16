@@ -111,7 +111,15 @@ const PII_PATTERNS: readonly [RegExp, string][] = [
   // A labelled secret in `=`, `:`, JSON (`"password":"x"`) or `%3D` form,
   // including `x-api-key:` headers. A quoted value is taken whole.
   [
-    /((?:password|passwd|token|secret|api[_-]?key|apikey|client_secret|access_token|refresh_token)["']?\s*(?::|=|%3D)\s*)(?:"(?:[^"\\]|\\.){0,512}"|'[^']{0,512}'|[^\s&;,'"}]+)/gi,
+    /((?:password|passwd|api[_-]?key|apikey|client_secret|access_token|refresh_token)["']?\s*(?::|=|%3D)\s*)(?:"(?:[^"\\]|\\.){0,512}"|'[^']{0,512}'|[^\s&;,'"}]+)/gi,
+    '$1[redacted: secret]',
+  ],
+  // `token` and `secret` are also ordinary words in error prose
+  // (`invalid token: expected`), so after a colon a short plain word is left
+  // alone: it is the useful part of the message, and a value with a digit or
+  // symbol, a quoted one, or any `=` form is still taken.
+  [
+    /((?<!client_|access_|refresh_)(?:token|secret)["']?\s*(?:=|%3D|:(?!\s*[A-Za-z]{1,20}(?![^\s&;,'"}])))\s*)(?:"(?:[^"\\]|\\.){0,512}"|'[^']{0,512}'|[^\s&;,'"}]+)/gi,
     '$1[redacted: secret]',
   ],
   // JWT: three base64url segments, the first two starting with an encoded `{"`.
