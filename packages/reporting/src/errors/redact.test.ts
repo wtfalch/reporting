@@ -277,6 +277,21 @@ describe('redactPii: more credential shapes', () => {
     });
   }
 
+  it('keeps the next word of prose after token: or secret:', () => {
+    expect(redactPii('invalid token: expected')).toBe('invalid token: expected');
+    expect(redactPii('secret: missing')).toBe('secret: missing');
+  });
+
+  it('still redacts an opaque value after token: and token=', () => {
+    const opaque = 'dGhpcyBpcyBhIGxvbmcgb3BhcXVlIHZhbHVl-_x9';
+    const hex = 'a3f9c2d41b7e08f65a3f9c2d41b7e08f';
+    expect(redactPii(`bad token: ${opaque} rejected`)).toBe(
+      'bad token: [redacted: secret] rejected',
+    );
+    expect(redactPii(`secret: ${hex}`)).toBe('secret: [redacted: secret]');
+    expect(redactPii('token=expected')).toBe('token=[redacted: secret]');
+  });
+
   it('keeps scheme and user in a URL with a password', () => {
     expect(redactPii('postgresql://u:pw@10.0.0.1/db')).toBe(
       'postgresql://u:[redacted: password]@10.0.0.1/db',
