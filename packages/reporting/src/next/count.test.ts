@@ -32,7 +32,7 @@ const errArgs = (path: string) =>
   ] as const;
 const rows = (site: string) =>
   t.query(
-    `select color, release, requests, errors from reporting_requests where site = '${site}' order by color`,
+    `select color, release, requests::int as requests, errors::int as errors from reporting_requests where site = '${site}' order by color`,
   );
 
 describe('count every request', () => {
