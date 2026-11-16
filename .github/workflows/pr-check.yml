@@ -1,0 +1,18 @@
+name: PR check
+# The repo's own gate, as its tag CI runs it: `pnpm check`.
+# Posts the status `tests` on the pull request head, which the harness gate waits for.
+on: pull_request
+concurrency:
+  group: pr-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  check:
+    uses: wtfalch/ci-templates/.github/workflows/pr-check.yml@main
+    with:
+      runner: ubuntu-latest
+      run-lint: false
+      run-typecheck: false
+      test-command: pnpm check
