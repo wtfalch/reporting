@@ -56,6 +56,7 @@ import type {
   SiteKeyResolver,
   SiteKeyRow,
   StateAuditEvent,
+  TenantDb,
   Tx,
 } from './index.js';
 import type { migrationSources, migrationsDir } from './migrations-dir.js';
@@ -108,11 +109,12 @@ export type LockedSurface = [
   SiteKeyResolver,
   SiteKeyRow,
   StateAuditEvent,
+  TenantDb,
   Tx,
 ];
 
-/** The surface is 47 names. Changing it is a breaking change for the host. */
-export type LockedSurfaceSize = 47;
+/** The surface is 48 names. Changing it is a breaking change for the host. */
+export type LockedSurfaceSize = 48;
 
 /** The runtime exports outside `index.ts`: the subpath
  * `@wtfalch/reporting-service/migrations-dir`. */

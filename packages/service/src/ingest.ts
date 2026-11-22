@@ -9,6 +9,7 @@ import {
 import { ServiceError } from './errors.js';
 import { namesOnly } from './log.js';
 import { type ErrorReport, OCCURRED_AT_WINDOW_MS, type SiteKeyConfig } from './schema.js';
+import type { TenantDb } from './tenant.js';
 
 /** The environment variable that holds the operator key: its value is redacted
  * from every stored message and stack, beside the estate's own KEYSTORE_*. */
@@ -86,7 +87,7 @@ function errorOf(report: ErrorReport, secret: string): Error {
  * from it and turns into `unavailable` after the transaction rolls back.
  */
 export async function ingestErrors(
-  o: IngestOptions,
+  o: IngestOptions & { readonly db: TenantDb },
   key: SiteKeyConfig,
   reports: readonly ErrorReport[],
   secret = '',

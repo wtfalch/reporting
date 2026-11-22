@@ -67,7 +67,7 @@ describe('health runs housekeeping', () => {
 describe('host housekeeping', () => {
   it('registers the four tasks', async () => {
     const store = await pgliteStore();
-    const names = createHostHousekeeping(store.orm as never)
+    const names = createHostHousekeeping(store.orm as never, DEVELOPMENT_TENANT_ID)
       .tasks()
       .map((task) => task.name)
       .sort();
@@ -81,7 +81,7 @@ describe('host housekeeping', () => {
 
   it('sets retention to 90 on a fresh database, recorded as the host', async () => {
     const store = await pgliteStore();
-    await createHostHousekeeping(store.orm as never).tick();
+    await createHostHousekeeping(store.orm as never, DEVELOPMENT_TENANT_ID).tick();
     expect(
       await store.rows(
         "select value::text as value, updated_by from reporting_settings where key = 'events.retention_days'",
@@ -94,11 +94,37 @@ describe('host housekeeping', () => {
     await store.rows(
       "insert into reporting_settings (key, value, updated_by) values ('events.retention_days', '45', 'user:op')",
     );
-    await createHostHousekeeping(store.orm as never).tick();
+    await createHostHousekeeping(store.orm as never, DEVELOPMENT_TENANT_ID).tick();
     expect(
       await store.rows(
         "select value::text as value, updated_by from reporting_settings where key = 'events.retention_days'",
       ),
     ).toEqual([{ value: '45', updated_by: 'user:op' }]);
+  });
+
+  it('runs each prune in a transaction whose first statement binds the tenant', async () => {
+    const store = await pgliteStore();
+    const housekeeping = createHostHousekeeping(store.orm as never, DEVELOPMENT_TENANT_ID);
+    for (const task of housekeeping.tasks()) {
+      expect(await housekeeping.runNow(task.name)).toBe('ran');
+    }
+    const prunes = store.statements.filter((s) => /reporting_prune_/.test(s.sql));
+    expect(prunes.length).toBeGreaterThanOrEqual(3);
+    for (const prune of prunes) {
+      expect(prune.tx).not.toBeNull();
+      const first = store.statements.find((s) => s.tx === prune.tx);
+      expect(first?.sql).toContain("set_config('app.tenant_id'");
+      expect(first?.params).toEqual([DEVELOPMENT_TENANT_ID]);
+    }
+  });
+
+  it('with no tenant, runs no statement and logs one line naming AUTH_ORGANIZATION_ID', async () => {
+    const store = await pgliteStore();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    store.statements.length = 0;
+    await createHostHousekeeping(store.orm as never, undefined).tick();
+    expect(store.statements).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain('AUTH_ORGANIZATION_ID');
   });
 });

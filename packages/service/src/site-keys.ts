@@ -10,9 +10,11 @@ import {
   type SiteKeyConfig,
 } from './schema.js';
 import { reportingSiteKeys } from './tables.js';
+import { type TenantDb, inTenant } from './tenant.js';
 
-/** Looks one presented secret up. `null` means unknown or revoked. */
-export type SiteKeyResolver = (secret: string) => Promise<SiteKeyConfig | null>;
+/** Looks one presented secret up, in the bound transaction the caller gives.
+ * `null` means unknown or revoked. */
+export type SiteKeyResolver = (secret: string, db: TenantDb) => Promise<SiteKeyConfig | null>;
 
 /** `ci_rk_` and 32 random bytes in base64url (docs/plans/backend.md, "Credentials"). */
 export const SITE_KEY_SECRET_PREFIX = 'ci_rk_';
@@ -51,7 +53,7 @@ export interface SiteKeyCacheOptions {
 }
 
 /**
- * The host's resolver: a key resolves only while its row exists and is not
+ * The host's resolver (the caller passes the bound transaction): a key resolves only while its row exists and is not
  * revoked. A found key is remembered by its hash for `ttlMs` (60 seconds) in
  * at most `maxEntries` entries, oldest out first. A key that is not found is
  * never remembered, so a newly minted key works at once.
@@ -60,7 +62,6 @@ export interface SiteKeyCacheOptions {
  * Another process that shares the database sees a revoke up to `ttlMs` late.
  */
 export function databaseSiteKeys(
-  db: Db,
   options: SiteKeyCacheOptions = {},
 ): SiteKeyResolver & { forget(id: string): void } {
   const ttlMs = options.ttlMs ?? SITE_KEY_CACHE_TTL_MS;
@@ -70,7 +71,7 @@ export function databaseSiteKeys(
   // Counts forgets, so a lookup that began before one does not put its row back.
   let forgets = 0;
 
-  const resolve: SiteKeyResolver = async (secret) => {
+  const resolve: SiteKeyResolver = async (secret, db) => {
     const hash = hashSecret(secret);
     const hit = cache.get(hash);
     if (hit && hit.expiresAt > now()) return hit.config;
@@ -201,14 +202,14 @@ const MINT_LOCK = sql`select pg_advisory_xact_lock(hashtextextended('reporting_s
  * back, older key included.
  */
 export async function mintSiteKey(
-  db: Db,
+  db: TenantDb,
   input: MintSiteKeyInput,
-  within?: (minted: MintedSiteKey, tx: Tx) => Promise<void>,
+  within?: (minted: MintedSiteKey, tx: TenantDb) => Promise<void>,
 ): Promise<MintedSiteKey> {
   const id = randomUUID();
   const secret = `${SITE_KEY_SECRET_PREFIX}${randomBytes(32).toString('base64url')}`;
   const name = input.name.toLowerCase();
-  return db.transaction(async (tx) => {
+  return inTenant(db, input.tenantId, async (tx) => {
     await tx.execute(MINT_LOCK);
     const foreign = await tx
       .select({ id: reportingSiteKeys.id })
@@ -247,7 +248,7 @@ export async function mintSiteKey(
 
 /** Idempotent: an unknown or already revoked id changes nothing. A key keeps
  * the time of its first revocation. Answers whether this call revoked it. */
-export async function revokeSiteKey(db: Db | Tx, id: string): Promise<SiteKeyBinding | null> {
+export async function revokeSiteKey(db: TenantDb, id: string): Promise<SiteKeyBinding | null> {
   const rows = await db
     .update(reportingSiteKeys)
     .set({ revokedAt: sql`now()` })

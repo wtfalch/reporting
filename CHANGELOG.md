@@ -1,5 +1,26 @@
 # Changelog
 
+### Unreleased (core, service and host; the SDK is unchanged)
+
+Forced row-level security returns to the company database (ADR 0003).
+
+- Core migration `0012_tenant_policies.sql`: `ENABLE` and `FORCE ROW LEVEL
+  SECURITY` with policies on `tenant_id` for `reporting_events`,
+  `reporting_analytics`, `reporting_analytics_daily`,
+  `reporting_analytics_weekly`, `reporting_errors`,
+  `reporting_tenant_settings` and `reporting_error_tenants`. A row with no
+  tenant stays visible. `reporting_tasks`, `reporting_settings` and
+  `reporting_requests` hold no tenant rows (`GLOBAL_CORE_TABLES`).
+- Service: `inTenant` and `TenantDb`. Every database function takes a
+  `TenantDb`; `databaseSiteKeys()` takes no database and its resolver takes
+  the bound transaction; `createAlerts` requires `tenantId`. A handler with no
+  `tenantId` answers `not_configured` (503) on every database route.
+- Host: housekeeping and alerts bind to `tenantIdOf(AUTH_ORGANIZATION_ID)`;
+  with it unset they log one line each tick and do nothing.
+- During a rolling deploy an old container sets no tenant, so it sees only
+  null-tenant rows and its tenant writes fail: expect error responses until it
+  is gone.
+
 ## 2.1.0 - 2026-11-08
 
 Error reports carry opaque context ids and a retry link; the service filters
