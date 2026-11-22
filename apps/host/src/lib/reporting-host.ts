@@ -273,17 +273,17 @@ export function createHostHousekeeping(db: HostDb, tenantId: string | undefined)
   }
   let seeded: Promise<void> | undefined;
   async function seedRetention(tenant: string): Promise<void> {
-    const rows = await inTenant(db, tenant, (tx) =>
-      tx
+    await inTenant(db, tenant, async (tx) => {
+      const rows = await tx
         .select({ key: tables.settings.key })
         .from(tables.settings)
-        .where(eq(tables.settings.key, RETENTION_KEY)),
-    );
-    if (rows.length > 0) return;
-    await reporting.settings.set(
-      { [RETENTION_KEY]: HOST_RETENTION_DAYS },
-      { class: 'service', id: HOST_SITE },
-    );
+        .where(eq(tables.settings.key, RETENTION_KEY));
+      if (rows.length > 0) return;
+      await createReporting({ db: tx, log: hostLog, site: HOST_SITE }).settings.set(
+        { [RETENTION_KEY]: HOST_RETENTION_DAYS },
+        { class: 'service', id: HOST_SITE },
+      );
+    });
   }
   return {
     ...core,

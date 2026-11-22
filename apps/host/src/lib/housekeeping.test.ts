@@ -118,6 +118,26 @@ describe('host housekeeping', () => {
     }
   });
 
+  it('runs the retention seed read and write in one transaction that binds the tenant', async () => {
+    const store = await pgliteStore();
+    store.statements.length = 0;
+    await createHostHousekeeping(store.orm as never, DEVELOPMENT_TENANT_ID).tick();
+    // Core's own tick (after the seed) reads the global settings table unbound.
+    const seed = store.statements.slice(
+      0,
+      store.statements.findIndex((s) => /reporting_tasks/.test(s.sql)),
+    );
+    const touching = seed.filter((s) => /reporting_settings/.test(s.sql));
+    expect(touching.length).toBeGreaterThanOrEqual(2);
+    for (const stmt of touching) {
+      expect(stmt.tx).not.toBeNull();
+      const first = store.statements.find((s) => s.tx === stmt.tx);
+      expect(first?.sql).toContain("set_config('app.tenant_id'");
+      expect(first?.params).toEqual([DEVELOPMENT_TENANT_ID]);
+    }
+    expect(new Set(touching.map((s) => s.tx)).size).toBe(1);
+  });
+
   it('with no tenant, runs no statement and logs one line naming AUTH_ORGANIZATION_ID', async () => {
     const store = await pgliteStore();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
