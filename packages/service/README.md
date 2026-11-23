@@ -91,6 +91,14 @@ credential. The runtime role needs:
   TRUNCATE for every role anyway.
 - core's tables as core's README lists them.
 
+Core's migration `0012_tenant_policies.sql` turns on forced row-level security
+on the seven core tables that hold tenant rows (`GLOBAL_CORE_TABLES` in
+`@wtfalch/reporting-core/tenant-policies` names the three that do not). The
+service reaches the database only through `inTenant(db, tenantId, work)`, a
+transaction whose first statement sets `app.tenant_id` to the host's tenant;
+a handler with no `tenantId` answers `not_configured` (503) on every route
+that touches the database. See `docs/adr/0003-forced-row-level-security-in-the-company-database.md`.
+
 ## What it never does
 
 It logs fixed text and error names only: never a site key, the operator key
