@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GLOBAL_CORE_TABLES } from './tenant-policies.js';
 import { type TestDb, testDb } from './test/db.js';
@@ -202,5 +203,17 @@ describe('every core table has a policy or a reason', () => {
 
   it('passes a listed table with no tenant_id column', () => {
     expect(snapshot.tenantColumn.reporting_requests).toBe(false);
+  });
+});
+
+describe('the tenant-policies export', () => {
+  it('is its own subpath of the package, pointing at the built module and its types', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      exports: Record<string, unknown>;
+    };
+    expect(pkg.exports['./tenant-policies']).toEqual({
+      types: './dist/tenant-policies.d.ts',
+      default: './dist/tenant-policies.js',
+    });
   });
 });
