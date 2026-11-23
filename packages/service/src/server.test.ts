@@ -899,3 +899,126 @@ describe('routes and the stores', () => {
     ]);
   });
 });
+
+describe('every route runs bound to the host tenant', () => {
+  const FINGERPRINT = '0123456789abcdef0123456789abcdef';
+  const OFF = { newKind: false, wentUp: false };
+  const by = { class: 'human', id: 'person-1' };
+  const body = (value: unknown) => JSON.stringify(value);
+  const report = { errors: [{ kind: 'TypeError', message: 'boom', runtime: 'server' }] };
+
+  interface Route {
+    name: string;
+    method: string;
+    path: string;
+    /** A site key as the bearer, instead of the operator key. */
+    key?: () => string;
+    body?: unknown;
+  }
+  const routes: Route[] = [
+    { name: 'ingest', method: 'POST', path: '/v1/errors', key: () => shopKey, body: report },
+    { name: 'mint', method: 'POST', path: '/v1/site-keys', body: { name: 'cart', site: 'cart' } },
+    { name: 'revoke', method: 'DELETE', path: '/v1/site-keys/some-key' },
+    { name: 'error list', method: 'GET', path: '/v1/errors?site=shop' },
+    {
+      name: 'error series',
+      method: 'GET',
+      path: '/v1/errors/series?site=shop&from=2026-11-02T00:00:00Z&to=2026-11-02T01:00:00Z',
+    },
+    {
+      name: 'error by-context',
+      method: 'GET',
+      path: '/v1/errors/by-context?site=shop&by=company&from=2026-11-02T00:00:00Z&to=2026-11-02T01:00:00Z',
+    },
+    { name: 'error detail', method: 'GET', path: `/v1/errors/${FINGERPRINT}?site=shop` },
+    {
+      name: 'state change',
+      method: 'POST',
+      path: `/v1/errors/${FINGERPRINT}/state`,
+      body: { site: 'shop', state: 'resolved', by },
+    },
+    { name: 'alert rules read', method: 'GET', path: '/v1/alert-rules?site=shop' },
+    {
+      name: 'alert rules save',
+      method: 'PUT',
+      path: '/v1/alert-rules',
+      body: {
+        site: 'shop',
+        recipients: [],
+        choices: { live: OFF, work: OFF },
+        by,
+      },
+    },
+    {
+      name: 'release',
+      method: 'POST',
+      path: '/v1/releases',
+      body: {
+        site: 'shop',
+        environment: 'production',
+        release: '1.0',
+        since: '2026-11-02T10:00:00Z',
+      },
+    },
+  ];
+
+  function request(route: Route, bodyOverride?: string | ReadableStream<Uint8Array>): Request {
+    const key = route.key ? route.key() : OPERATOR;
+    return new Request(`${BASE}${route.path}`, {
+      method: route.method,
+      headers: { authorization: `Bearer ${key}` },
+      ...(route.body !== undefined || bodyOverride
+        ? { body: bodyOverride ?? body(route.body), duplex: 'half' }
+        : {}),
+    } as RequestInit);
+  }
+
+  it.each(routes)(
+    '$name: every statement is in a transaction that starts with set_config',
+    async (route) => {
+      t.clearLog();
+      const res = await handle(request(route));
+      expect(res.status).toBeLessThan(500);
+      const log = t.statements;
+      expect(log.length).toBeGreaterThan(1);
+      expect(log.every((s) => s.tx !== null)).toBe(true);
+      for (const tx of new Set(log.map((s) => s.tx))) {
+        const first = log.find((s) => s.tx === tx);
+        expect(first?.sql).toContain("set_config('app.tenant_id'");
+        expect(first?.params).toEqual([TENANT]);
+      }
+    },
+  );
+
+  it.each(routes.filter((r) => r.body !== undefined))(
+    '$name: a body that never ends has run no statement',
+    async (route) => {
+      let stall: ReadableStreamDefaultController<Uint8Array> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          stall = controller;
+        },
+      });
+      t.clearLog();
+      const pending = handle(request(route, stream));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(t.statements).toEqual([]);
+      stall?.error(new Error('closed'));
+      await pending;
+    },
+  );
+
+  it.each(routes)('$name: with no tenant answers 503 and runs no query', async (route) => {
+    const unconfigured = createReportingHandler({
+      db: t.db,
+      operatorKey: OPERATOR,
+      log,
+      now: () => clock,
+    });
+    t.clearLog();
+    const res = await unconfigured(request(route));
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('not_configured');
+    expect(t.statements).toEqual([]);
+  });
+});

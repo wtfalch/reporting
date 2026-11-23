@@ -8,6 +8,7 @@ import { type Logger, errorName } from './log.js';
 import { errorSeries } from './reads.js';
 import { ENVIRONMENTS, INGEST_LIMITS, type ReportingEnvironment, SITE_PATTERN } from './schema.js';
 import { reportingAlertRules, reportingAlerts, reportingReleases } from './tables.js';
+import { type TenantDb, inTenant, savepoint } from './tenant.js';
 
 /**
  * Error emails (wtfalch/reporting#102): a company chooses, per site and
@@ -103,7 +104,7 @@ export function baselineOf(input: {
 
 /** The baseline of one release on one site and environment, read from `reporting_events`. */
 export async function baselineAfter(
-  db: Db,
+  db: TenantDb,
   where: { site: string; environment: ReportingEnvironment },
   since: Date,
   now: Date,
@@ -213,7 +214,7 @@ export const releaseBodySchema = z.strictObject({
 });
 export type ReleaseInput = z.infer<typeof releaseBodySchema>;
 
-export async function readAlertRules(db: Db, site: string): Promise<AlertRules> {
+export async function readAlertRules(db: TenantDb, site: string): Promise<AlertRules> {
   const rows = await db
     .select()
     .from(reportingAlertRules)
@@ -247,12 +248,12 @@ export async function readAlertRules(db: Db, site: string): Promise<AlertRules> 
  * `links` left out keep what is held.
  */
 export async function saveAlertRules(
-  db: Db,
+  db: TenantDb,
   tenantId: string,
   input: AlertRulesInput,
   now: Date,
 ): Promise<AlertRules> {
-  await db.transaction(async (tx) => {
+  await savepoint(db, async (tx) => {
     const current = await tx
       .select()
       .from(reportingAlertRules)
@@ -299,13 +300,13 @@ export async function saveAlertRules(
  * The audit row commits with the write, so a failed write leaves none.
  */
 export async function recordRelease(
-  db: Db,
+  db: TenantDb,
   tenantId: string | null,
   input: ReleaseInput,
   now: Date,
 ): Promise<void> {
   const since = new Date(input.since);
-  await db.transaction(async (tx) => {
+  await savepoint(db, async (tx) => {
     await tx
       .insert(reportingReleases)
       .values({ ...input, since, updatedAt: now })
@@ -329,7 +330,7 @@ export async function recordRelease(
  * releases: it starts the clock late, so a rise can read higher than Boule's).
  */
 export async function currentRelease(
-  db: Db,
+  db: TenantDb,
   where: { site: string; environment: ReportingEnvironment },
 ): Promise<{ release: string; since: Date } | null> {
   const [recorded] = await db
@@ -445,6 +446,9 @@ export function wentUpMail(input: {
 
 export interface CreateAlertsOptions {
   readonly db: Db;
+  /** The company's tenant: every database phase of the tick runs in a
+   * transaction bound to it (row-level security). */
+  readonly tenantId: string;
   /** `null` when the host has no mail: the tick then sends nothing and claims nothing. */
   readonly mail: AlertMail | null;
   readonly log: Logger;
@@ -486,7 +490,10 @@ function sendWithin<T>(send: Promise<T>, ms: number): Promise<T> {
 }
 
 export function createAlerts(options: CreateAlertsOptions): Alerts {
-  const { db, mail, log } = options;
+  const { mail, log, tenantId } = options;
+  /** One database phase, in its own bound transaction. Mail is never sent inside one. */
+  const phase = <T>(work: (db: TenantDb) => Promise<T>): Promise<T> =>
+    inTenant(options.db, tenantId, work);
   const now = options.now ?? (() => new Date());
   const everyMs = options.everyMs ?? 60_000;
   const sendTimeoutMs = options.sendTimeoutMs ?? ALERT_LIMITS.sendTimeoutMs;
@@ -515,15 +522,22 @@ export function createAlerts(options: CreateAlertsOptions): Alerts {
       }
     }
     const all = row.recipients.every((to) => delivered.has(to));
-    await db
-      .update(reportingAlerts)
-      .set({ delivered: [...delivered], status: all ? 'sent' : 'failed' })
-      .where(eq(reportingAlerts.id, row.id));
+    await phase((db) =>
+      db
+        .update(reportingAlerts)
+        .set({ delivered: [...delivered], status: all ? 'sent' : 'failed' })
+        .where(eq(reportingAlerts.id, row.id)),
+    );
     return all;
   }
 
   /** Claims a mail never decided before; `null` when another tick has it. */
-  async function claim(rule: RuleRow, subject: string, at: Date): Promise<AlertRowT | null> {
+  async function claim(
+    db: TenantDb,
+    rule: RuleRow,
+    subject: string,
+    at: Date,
+  ): Promise<AlertRowT | null> {
     const [row] = await db
       .insert(reportingAlerts)
       .values({
@@ -543,6 +557,7 @@ export function createAlerts(options: CreateAlertsOptions): Alerts {
   }
 
   async function messageFor(
+    db: TenantDb,
     rule: RuleRow,
     row: Pick<AlertRowT, 'kind' | 'subject'>,
     at: Date,
@@ -583,7 +598,7 @@ export function createAlerts(options: CreateAlertsOptions): Alerts {
     return wentUpMail({ name, environment, release: row.subject, baseline, link: rule.link });
   }
 
-  async function newKinds(rule: RuleRow, at: Date): Promise<AlertRowT[]> {
+  async function newKinds(db: TenantDb, rule: RuleRow, at: Date): Promise<AlertRowT[]> {
     if (!rule.enabledSince) return [];
     const from = new Date(
       Math.max(
@@ -609,13 +624,13 @@ export function createAlerts(options: CreateAlertsOptions): Alerts {
       .limit(ALERT_LIMITS.newKindsPerTick);
     const claimed: AlertRowT[] = [];
     for (const g of groups) {
-      const row = await claim(rule, g.fingerprint, at);
+      const row = await claim(db, rule, g.fingerprint, at);
       if (row) claimed.push(row);
     }
     return claimed;
   }
 
-  async function rise(rule: RuleRow, at: Date): Promise<AlertRowT | null> {
+  async function rise(db: TenantDb, rule: RuleRow, at: Date): Promise<AlertRowT | null> {
     const environment = rule.environment as ReportingEnvironment;
     const current = await currentRelease(db, { site: rule.site, environment });
     if (!current) return null;
@@ -635,11 +650,15 @@ export function createAlerts(options: CreateAlertsOptions): Alerts {
     if (done) return null;
     const baseline = await baselineAfter(db, { site: rule.site, environment }, current.since, at);
     if (!baseline.raised) return null;
-    return claim(rule, current.release, at);
+    return claim(db, rule, current.release, at);
   }
 
   /** Failed and crashed sends, taken back one at a time with a compare-and-set. */
-  async function retries(rules: Map<string, RuleRow>, at: Date): Promise<AlertRowT[]> {
+  async function retries(
+    db: TenantDb,
+    rules: Map<string, RuleRow>,
+    at: Date,
+  ): Promise<AlertRowT[]> {
     const failedBefore = new Date(at.getTime() - ALERT_LIMITS.retryAfterMs);
     const staleBefore = new Date(at.getTime() - ALERT_LIMITS.staleSendingMs);
     // ISO text, not a Date: a raw `sql` parameter is not mapped, and the
@@ -684,36 +703,37 @@ export function createAlerts(options: CreateAlertsOptions): Alerts {
 
   async function run(): Promise<AlertTickResult> {
     const at = now();
-    const enabled = await db
-      .select()
-      .from(reportingAlertRules)
-      .where(eq(reportingAlertRules.enabled, true));
+    const enabled = await phase((db) =>
+      db.select().from(reportingAlertRules).where(eq(reportingAlertRules.enabled, true)),
+    );
     const rules = new Map(enabled.map((r) => [`${r.site}/${r.environment}/${r.kind}`, r]));
     let sent = 0;
     let failed = 0;
     const send = async (rule: RuleRow, row: AlertRowT) => {
-      const message = await messageFor(rule, row, at);
+      const message = await phase((db) => messageFor(db, rule, row, at));
       if (!message) {
         // What the mail was about is gone (a pruned group): nothing to say, never tried again.
-        await db
-          .update(reportingAlerts)
-          .set({ status: 'failed', attempts: ALERT_LIMITS.attempts })
-          .where(eq(reportingAlerts.id, row.id));
+        await phase((db) =>
+          db
+            .update(reportingAlerts)
+            .set({ status: 'failed', attempts: ALERT_LIMITS.attempts })
+            .where(eq(reportingAlerts.id, row.id)),
+        );
         failed++;
         return;
       }
       if (await deliver(row, message)) sent++;
       else failed++;
     };
-    for (const row of await retries(rules, at)) {
+    for (const row of await phase((db) => retries(db, rules, at))) {
       const rule = rules.get(`${row.site}/${row.environment}/${row.kind}`);
       if (rule) await send(rule, row);
     }
     for (const rule of enabled) {
       const claimed =
         rule.kind === 'new_kind'
-          ? await newKinds(rule, at)
-          : [await rise(rule, at)].filter((r): r is AlertRowT => r !== null);
+          ? await phase((db) => newKinds(db, rule, at))
+          : [await phase((db) => rise(db, rule, at))].filter((r): r is AlertRowT => r !== null);
       for (const row of claimed) await send(rule, row);
     }
     return { sent, failed };

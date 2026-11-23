@@ -1,5 +1,6 @@
-import type { Actor, Db, ErrorState } from '@wtfalch/reporting-core';
+import type { Actor, ErrorState } from '@wtfalch/reporting-core';
 import { auditEvents } from './tables.js';
+import type { TenantDb } from './tenant.js';
 
 /** An operator action on a site key. Never carries the secret. */
 export interface SiteKeyAuditEvent {
@@ -45,7 +46,7 @@ export type AuditEvent =
  * reader (Boule) audits who looked.
  */
 export async function writeAudit(
-  db: Db,
+  db: TenantDb,
   tenantId: string | null,
   event: AuditEvent,
 ): Promise<void> {

@@ -19,6 +19,33 @@ vi.mock('@wtfalch/db/runtime-role', async (importOriginal) => ({
   assertRuntimeRole,
 }));
 
+// The shared store's pool and Drizzle view, recorded: what a host with no tenant touches.
+const touched = vi.hoisted(() => ({ orm: [] as string[], queries: [] as string[] }));
+vi.mock('@wtfalch/db/postgres', () => ({
+  createDatabase: () => ({
+    database: {
+      query: async (text: string) => {
+        touched.queries.push(text);
+        return [];
+      },
+    },
+    close: async () => undefined,
+  }),
+}));
+vi.mock('@wtfalch/db/drizzle', () => ({
+  withDrizzle: () => ({
+    orm: new Proxy(
+      {},
+      {
+        get(_target, prop) {
+          touched.orm.push(String(prop));
+          return undefined;
+        },
+      },
+    ),
+  }),
+}));
+
 /** A Drizzle handle that fails the test if the service touches it at all. */
 const untouchedDb = new Proxy(
   {},
@@ -217,12 +244,35 @@ describe('reporting-host composition root', () => {
   });
 
   it('the development site key resolves to the development tenant, and nothing else resolves', async () => {
-    expect(await developmentSiteKeys(DEVELOPMENT_SITE_KEY)).toEqual({
+    expect(await developmentSiteKeys(DEVELOPMENT_SITE_KEY, untouchedDb as never)).toEqual({
       id: DEVELOPMENT_SITE_KEY,
       site: 'app',
       environment: 'production',
       tenantId: DEVELOPMENT_TENANT_ID,
     });
-    expect(await developmentSiteKeys('ci_rk_anything')).toBeNull();
+    expect(await developmentSiteKeys('ci_rk_anything', untouchedDb as never)).toBeNull();
+  });
+});
+
+describe('a production host with no AUTH_ORGANIZATION_ID', () => {
+  it('ticks the alerts and the housekeeping to a log line each, runs no statement, and still answers health', async () => {
+    assertRuntimeRole.mockResolvedValue(undefined);
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AUTH_ORGANIZATION_ID', '');
+    vi.stubEnv('DATABASE_URL', 'postgres://reporting_rt:pw@localhost:5432/reporting');
+    vi.resetModules();
+    touched.orm.length = 0;
+    touched.queries.length = 0;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { sharedHealth } = await import('./reporting-host.js');
+    const response = await sharedHealth()();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(response.status).toBe(200);
+    expect(touched.orm).toEqual([]);
+    expect(touched.queries).toEqual(['select 1']);
+    const lines = warn.mock.calls.map((call) => String(call[0]));
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect(line).toContain('AUTH_ORGANIZATION_ID');
+    warn.mockRestore();
   });
 });

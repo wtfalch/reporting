@@ -24,7 +24,6 @@ import { INGEST_LIMITS, ingestBodySchema, stateBodySchema } from './schema.js';
 import {
   type MintedSiteKey,
   type SiteKeyResolver,
-  type Tx,
   bindingOf,
   databaseSiteKeys,
   forgetSiteKey,
@@ -33,6 +32,7 @@ import {
   operatorKeyMatches,
   revokeSiteKey,
 } from './site-keys.js';
+import { type TenantDb, inTenant } from './tenant.js';
 
 export interface CreateReportingHandlerOptions {
   /** The company's database, with core's migrations and this package's applied
@@ -44,8 +44,9 @@ export interface CreateReportingHandlerOptions {
    * nothing else; unset or empty, they refuse every caller. */
   readonly operatorKey?: string;
   /** The company's tenant id (`tenantIdOf(AUTH_ORGANIZATION_ID)`), written on
-   * every key the operator mints and every row an ingest writes. Unset,
-   * minting answers `not_configured`. */
+   * every key the operator mints and every row an ingest writes, and the one
+   * every request's transaction is bound to (row-level security). Unset,
+   * every route that touches the database answers `not_configured`. */
   readonly tenantId?: string;
   /** Which site, environment and tenant each site key writes as. Defaults to
    * `databaseSiteKeys(db)`, which refuses a revoked key. */
@@ -116,7 +117,7 @@ export function createReportingHandler(
   const log = options.log ?? consoleLogger;
   const now = options.now ?? (() => new Date());
   const tenantId = options.tenantId ?? null;
-  const siteKeys = options.siteKeys ?? databaseSiteKeys(db);
+  const siteKeys = options.siteKeys ?? databaseSiteKeys();
 
   function failed(error: unknown, message: string): Response {
     if (error instanceof ServiceError) return errorResponse(error.code, error.message);
@@ -124,24 +125,40 @@ export function createReportingHandler(
     return errorResponse('unavailable', 'Service unavailable');
   }
 
+  /** Runs `work` in a transaction bound to the host's tenant. With no tenant
+   * nothing runs: under forced row-level security an unset tenant reads as
+   * empty, which would look like success. */
+  function bound<T>(work: (tx: TenantDb, tenant: string) => Promise<T>): Promise<T> {
+    if (!tenantId) throw new ServiceError('not_configured', 'No tenant is configured');
+    return inTenant(db, tenantId, (tx) => work(tx, tenantId));
+  }
+
+  function requireTenant(message = 'No tenant is configured'): void {
+    if (!tenantId) throw new ServiceError('not_configured', message);
+  }
+
   async function mint(request: Request): Promise<Response> {
-    if (!tenantId) throw new ServiceError('not_configured', 'Minting is not configured');
+    requireTenant('Minting is not configured');
     const parsed = mintRequestSchema.safeParse(await readJson(request, MINT_BODY_BYTES));
     if (!parsed.success) throw new ServiceError('invalid_request', 'Invalid site key request');
     const binding = bindingOf(parsed.data);
-    const audit = async (minted: MintedSiteKey, tx: Tx) => {
-      await writeAudit(tx, tenantId, {
+    const audit = async (minted: MintedSiteKey, tx: TenantDb, tenant: string) => {
+      await writeAudit(tx, tenant, {
         operation: 'site_key.mint',
         keyId: minted.id,
         site: minted.site,
       });
       for (const keyId of minted.replaced) {
-        await writeAudit(tx, tenantId, { operation: 'site_key.revoke', keyId, site: minted.site });
+        await writeAudit(tx, tenant, { operation: 'site_key.revoke', keyId, site: minted.site });
       }
     };
     // The revoke of the older key, the insert and every audit row commit
     // together, so a failed audit write leaves the older key live.
-    const minted = await mintSiteKey(db, { name: parsed.data.name, tenantId, ...binding }, audit);
+    const minted = await bound((tx, tenant) =>
+      mintSiteKey(tx, { name: parsed.data.name, tenantId: tenant, ...binding }, (m, t) =>
+        audit(m, t, tenant),
+      ),
+    );
     for (const keyId of minted.replaced) forgetSiteKey(siteKeys, keyId);
     return jsonResponse(
       {
@@ -157,11 +174,12 @@ export function createReportingHandler(
   /** `204` also for an unknown id. The audit row commits with the revoke, and
    * only when the revoke changed a row. */
   async function revoke(keyId: string): Promise<Response> {
+    requireTenant();
     if (KEY_ID.test(keyId)) {
-      await db.transaction(async (tx) => {
+      await bound(async (tx, tenant) => {
         const revoked = await revokeSiteKey(tx, keyId);
         if (revoked) {
-          await writeAudit(tx, tenantId, {
+          await writeAudit(tx, tenant, {
             operation: 'site_key.revoke',
             keyId,
             site: revoked.site,
@@ -175,39 +193,52 @@ export function createReportingHandler(
   }
 
   async function ingest(request: Request): Promise<Response> {
+    requireTenant();
     const secret = bearerOf(request);
-    const key = secret ? await siteKeys(secret) : null;
-    if (!key) {
+    const refused = () => {
       log.info({}, 'reporting: ingest refused: unknown or revoked site key');
       return errorResponse('unauthorized', 'A valid site key is required');
-    }
+    };
+    if (!secret) return refused();
+    // The body is read and checked before any transaction opens: a slow
+    // sender never holds a connection.
     const parsed = ingestBodySchema.safeParse(await readJson(request, INGEST_LIMITS.bodyBytes));
     if (!parsed.success) {
       log.info({}, 'reporting: ingest refused: invalid batch');
       throw new ServiceError('invalid_request', 'Invalid error batch');
     }
-    const accepted = await ingestErrors(
-      { db, log, now, redactEnvVars: options.redactEnvVars },
-      key,
-      parsed.data.errors,
-      secret,
-    );
+    const accepted = await bound(async (tx) => {
+      const key = await siteKeys(secret, tx);
+      if (!key) return null;
+      return ingestErrors(
+        { db: tx, log, now, redactEnvVars: options.redactEnvVars },
+        key,
+        parsed.data.errors,
+        secret,
+      );
+    });
+    if (accepted === null) return refused();
     options.afterIngest?.();
     return jsonResponse({ accepted }, 202);
   }
 
   async function rules(url: URL): Promise<Response> {
-    return jsonResponse(await readAlertRules(db, params.site(url)));
+    requireTenant();
+    const site = params.site(url);
+    return jsonResponse(await bound((tx) => readAlertRules(tx, site)));
   }
 
   async function putRules(request: Request): Promise<Response> {
-    if (!tenantId) throw new ServiceError('not_configured', 'Alert rules are not configured');
+    requireTenant('Alert rules are not configured');
     const parsed = alertRulesBodySchema.safeParse(await readJson(request, RULES_BODY_BYTES));
     if (!parsed.success) throw new ServiceError('invalid_request', 'Invalid alert rules');
-    return jsonResponse(await saveAlertRules(db, tenantId, parsed.data, now()));
+    return jsonResponse(
+      await bound((tx, tenant) => saveAlertRules(tx, tenant, parsed.data, now())),
+    );
   }
 
   async function release(request: Request): Promise<Response> {
+    requireTenant();
     const parsed = releaseBodySchema.safeParse(await readJson(request, RELEASE_BODY_BYTES));
     const at = now();
     if (
@@ -216,28 +247,29 @@ export function createReportingHandler(
     ) {
       throw new ServiceError('invalid_request', 'Invalid release');
     }
-    await recordRelease(db, tenantId, parsed.data, at);
+    await bound((tx, tenant) => recordRelease(tx, tenant, parsed.data, at));
     return jsonResponse({ ...parsed.data, since: new Date(parsed.data.since).toISOString() });
   }
 
   async function list(url: URL): Promise<Response> {
+    requireTenant();
     const search = url.searchParams.get('search') ?? undefined;
     const after = url.searchParams.get('after') || undefined;
-    return jsonResponse(
-      await listErrors(db, {
-        site: params.site(url),
-        environment: params.environment(url),
-        state: params.state(url),
-        runtime: params.runtime(url),
-        search: search || undefined,
-        limit: params.limit(url),
-        after,
-        context: params.context(url),
-      }),
-    );
+    const listOptions = {
+      site: params.site(url),
+      environment: params.environment(url),
+      state: params.state(url),
+      runtime: params.runtime(url),
+      search: search || undefined,
+      limit: params.limit(url),
+      after,
+      context: params.context(url),
+    };
+    return jsonResponse(await bound((tx) => listErrors(tx, listOptions)));
   }
 
   async function series(url: URL): Promise<Response> {
+    requireTenant();
     const site = params.site(url);
     const environment = params.environment(url);
     const from = params.time(url, 'from');
@@ -249,11 +281,14 @@ export function createReportingHandler(
       throw new ServiceError('invalid_request', 'to must be after from, at most 31 days later');
     }
     return jsonResponse(
-      await errorSeries(db, { site, environment, from, to, bucketMinutes, fingerprint, context }),
+      await bound((tx) =>
+        errorSeries(tx, { site, environment, from, to, bucketMinutes, fingerprint, context }),
+      ),
     );
   }
 
   async function byContext(url: URL): Promise<Response> {
+    requireTenant();
     const site = params.site(url);
     const environment = params.environment(url);
     const from = params.time(url, 'from');
@@ -262,19 +297,27 @@ export function createReportingHandler(
     if (to <= from || to.getTime() - from.getTime() > MAX_SERIES_DAYS * 24 * 60 * 60_000) {
       throw new ServiceError('invalid_request', 'to must be after from, at most 31 days later');
     }
-    return jsonResponse({ items: await errorsByContext(db, { site, environment, from, to, by }) });
+    return jsonResponse({
+      items: await bound((tx) => errorsByContext(tx, { site, environment, from, to, by })),
+    });
   }
 
   async function detail(url: URL, fingerprint: string): Promise<Response> {
-    const group = await getError(db, params.site(url), fingerprint, params.context(url));
+    requireTenant();
+    const site = params.site(url);
+    const context = params.context(url);
+    const group = await bound((tx) => getError(tx, site, fingerprint, context));
     if (!group) throw new ServiceError('not_found', 'No such error group');
     return jsonResponse(group);
   }
 
   async function changeState(request: Request, fingerprint: string): Promise<Response> {
+    requireTenant();
     const parsed = stateBodySchema.safeParse(await readJson(request, STATE_BODY_BYTES));
     if (!parsed.success) throw new ServiceError('invalid_request', 'Invalid state request');
-    const group = await setState(db, tenantId, { ...parsed.data, fingerprint });
+    const group = await bound((tx, tenant) =>
+      setState(tx, tenant, { ...parsed.data, fingerprint }),
+    );
     if (!group) throw new ServiceError('not_found', 'No such error group');
     return jsonResponse(group);
   }
