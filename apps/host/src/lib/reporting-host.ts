@@ -15,12 +15,15 @@ import {
   consoleLogger,
   createAlerts,
   createReportingHandler,
+  inTenant,
   serviceTables,
+  tenantIdOf,
 } from '@wtfalch/reporting-service';
 import { eq } from 'drizzle-orm';
 import { after } from 'next/server';
 import { alertMailFromEnv } from './alert-mail';
 import {
+  DEVELOPMENT_TENANT_ID,
   type HostComposition,
   assertDevelopmentEnv,
   developmentComposition,
@@ -71,6 +74,18 @@ const HEALTH_QUERY_TIMEOUT_MS = 3_000;
  * string carries a password. `DATABASE_URL_OWNER` never reaches the server
  * (start.sh), so it has no value here to redact. */
 const HOST_SECRET_ENV = ['DATABASE_URL', 'LETTERMINT_API_TOKEN'];
+
+/** Without a tenant the housekeeping and the alerts do nothing: under forced
+ * row-level security every query would read as empty. */
+const MISSING_TENANT = 'AUTH_ORGANIZATION_ID is not set, so there is no tenant to bind to';
+
+/** The host's tenant as `instrumentation.ts` reads it for the composition:
+ * `tenantIdOf(AUTH_ORGANIZATION_ID)`, or the fixed development tenant. */
+function hostTenantId(): string | undefined {
+  if (isDevelopmentEnv()) return DEVELOPMENT_TENANT_ID;
+  const organisationId = process.env.AUTH_ORGANIZATION_ID;
+  return organisationId ? tenantIdOf(organisationId) : undefined;
+}
 
 /** Reported as `site` on the host's own events and housekeeping rows. */
 const HOST_SITE = 'reporting-host';
@@ -240,29 +255,45 @@ const hostLog = {
  * operator's later change stands. The seed runs before the first tick and is
  * retried on the next tick when it fails; the tick itself never throws.
  */
-export function createHostHousekeeping(db: HostDb): Housekeeping {
+export function createHostHousekeeping(db: HostDb, tenantId: string | undefined): Housekeeping {
   const reporting = createReporting({ db, log: hostLog, site: HOST_SITE });
   const core = createHousekeeping({ reporting, db });
+  // Each task runs in its own transaction bound to the host's tenant, never
+  // the whole tick: core claims a task in its own short transaction and a
+  // binding around the tick would hold that claim lock for the whole task.
+  // The prune functions are SECURITY DEFINER and read the caller's setting.
   for (const task of [pruneEvents, retentionLag, pruneErrors, pruneOpenErrors]) {
-    core.register(task);
+    core.register({
+      ...task,
+      run: (ctx) => {
+        if (!tenantId) throw new Error(MISSING_TENANT);
+        return inTenant(db, tenantId, (tx) => task.run({ ...ctx, db: tx }));
+      },
+    });
   }
   let seeded: Promise<void> | undefined;
-  async function seedRetention(): Promise<void> {
-    const rows = await db
-      .select({ key: tables.settings.key })
-      .from(tables.settings)
-      .where(eq(tables.settings.key, RETENTION_KEY));
-    if (rows.length > 0) return;
-    await reporting.settings.set(
-      { [RETENTION_KEY]: HOST_RETENTION_DAYS },
-      { class: 'service', id: HOST_SITE },
-    );
+  async function seedRetention(tenant: string): Promise<void> {
+    await inTenant(db, tenant, async (tx) => {
+      const rows = await tx
+        .select({ key: tables.settings.key })
+        .from(tables.settings)
+        .where(eq(tables.settings.key, RETENTION_KEY));
+      if (rows.length > 0) return;
+      await createReporting({ db: tx, log: hostLog, site: HOST_SITE }).settings.set(
+        { [RETENTION_KEY]: HOST_RETENTION_DAYS },
+        { class: 'service', id: HOST_SITE },
+      );
+    });
   }
   return {
     ...core,
     async tick() {
+      if (!tenantId) {
+        console.warn(`reporting-host: ${MISSING_TENANT}`);
+        return;
+      }
       try {
-        seeded ??= seedRetention();
+        seeded ??= seedRetention(tenantId);
         await seeded;
       } catch {
         seeded = undefined;
@@ -285,12 +316,20 @@ function sharedStore(): Store {
     // health check and the role check run share it.
     const owner = openDatabase('reporting-host', 5);
     const db = withDrizzle(owner, { schema: schemaTables }).orm;
+    const tenantId = hostTenantId();
     store = {
       db,
       database: owner.database,
-      housekeeping: createHostHousekeeping(db),
+      housekeeping: createHostHousekeeping(db, tenantId),
       // Logged as fixed text and names: never an address, a key or an error's text.
-      alerts: createAlerts({ db, mail: alertMailFromEnv(process.env), log: consoleLogger }),
+      alerts: tenantId
+        ? createAlerts({ db, tenantId, mail: alertMailFromEnv(process.env), log: consoleLogger })
+        : {
+            async tick() {
+              console.warn(`reporting-host: ${MISSING_TENANT}`);
+              return { sent: 0, failed: 0 };
+            },
+          },
     };
   }
   return store;

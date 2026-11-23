@@ -15,17 +15,54 @@ import { drizzle } from 'drizzle-orm/pglite';
  * since `withDrizzle` binds to the postgres driver and PGlite has its own.
  * PGlite has no roles, so a test that uses this mocks the role check.
  */
+export interface LoggedStatement {
+  /** The top-level transaction the statement ran in, `null` outside any. */
+  readonly tx: number | null;
+  readonly sql: string;
+  readonly params: unknown[];
+}
+
+/** The client, with each query recorded and each top-level transaction numbered. */
+function logged(client: PGlite, statements: LoggedStatement[]): PGlite {
+  let counter = 0;
+  const wrap = <T extends object>(target: T, tx: number | null): T =>
+    new Proxy(target, {
+      get(inner, prop) {
+        const value = Reflect.get(inner, prop, inner);
+        if (typeof value !== 'function') return value;
+        if (prop === 'query') {
+          return (text: string, params: unknown[] = [], ...rest: unknown[]) => {
+            statements.push({ tx, sql: text, params });
+            return value.call(inner, text, params, ...rest);
+          };
+        }
+        if (prop === 'transaction' && tx === null) {
+          return (work: (handle: PGlite) => Promise<unknown>) => {
+            const id = ++counter;
+            return value.call(inner, (handle: PGlite) => work(wrap(handle, id)));
+          };
+        }
+        return value.bind(inner);
+      },
+    });
+  return wrap(client, null);
+}
+
 export async function pgliteStore(): Promise<{
   readonly owner: DatabaseOwner;
   readonly orm: ReturnType<typeof drizzle>;
+  /** Every statement `orm` ran, in order. */
+  readonly statements: LoggedStatement[];
   rows(text: string): Promise<Record<string, unknown>[]>;
 }> {
   const client = new PGlite();
   const owner = createPgliteDatabase(client);
   await runMigrationSources({ owner, sources: [...migrationSources], log: () => undefined });
+  const statements: LoggedStatement[] = [];
   return {
     owner,
-    orm: drizzle(client, { schema: { ...tables, ...serviceTables } }),
+    orm: drizzle(logged(client, statements), { schema: { ...tables, ...serviceTables } }),
+    statements,
     rows: async (text) => (await client.query(text)).rows as Record<string, unknown>[],
   };
 }

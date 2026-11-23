@@ -10,6 +10,7 @@ import {
   revokeSiteKey,
   tenantIdOf,
 } from './site-keys.js';
+import { type TenantDb, inTenant } from './tenant.js';
 import { type TestDb, memoryLog, testDb } from './test/db.js';
 
 const OPERATOR = 'operator-key-for-tests';
@@ -17,6 +18,16 @@ const TENANT = tenantIdOf('org_acme');
 const OTHER_TENANT = tenantIdOf('org_other');
 
 let t: TestDb;
+
+/** The service's own calls run bound to the host's tenant. */
+const asTenant = <T>(work: (tx: TenantDb) => Promise<T>) => inTenant(t.db, TENANT, work);
+const mint = (
+  input: Parameters<typeof mintSiteKey>[1],
+  within?: Parameters<typeof mintSiteKey>[2],
+) => asTenant((tx) => mintSiteKey(tx, input, within));
+const revoke = (id: string) => asTenant((tx) => revokeSiteKey(tx, id));
+const lookup = (resolve: ReturnType<typeof databaseSiteKeys>, secret: string) =>
+  asTenant((tx) => resolve(secret, tx));
 beforeAll(async () => {
   t = await testDb();
 });
@@ -82,7 +93,7 @@ describe('bindingOf', () => {
 
 describe('mintSiteKey / revokeSiteKey', () => {
   it('stores only the sha256 of a ci_rk_ secret of 32 random bytes', async () => {
-    const minted = await mintSiteKey(t.db, {
+    const minted = await mint({
       name: 'shop',
       site: 'shop',
       environment: 'production',
@@ -99,33 +110,33 @@ describe('mintSiteKey / revokeSiteKey', () => {
   });
 
   it('a repeat of a name revokes the older key, whatever its case', async () => {
-    const first = await mintSiteKey(t.db, {
+    const first = await mint({
       name: 'Shop',
       site: 'shop',
       environment: 'production',
       tenantId: TENANT,
     });
-    const second = await mintSiteKey(t.db, {
+    const second = await mint({
       name: 'shop',
       site: 'shop',
       environment: 'production',
       tenantId: TENANT,
     });
     expect(second.replaced).toEqual([first.id]);
-    const resolve = databaseSiteKeys(t.db);
-    expect(await resolve(first.secret)).toBeNull();
-    expect(await resolve(second.secret)).toMatchObject({ id: second.id, tenantId: TENANT });
+    const resolve = databaseSiteKeys();
+    expect(await lookup(resolve, first.secret)).toBeNull();
+    expect(await lookup(resolve, second.secret)).toMatchObject({ id: second.id, tenantId: TENANT });
   });
 
   it('refuses a second tenant in one database', async () => {
-    await mintSiteKey(t.db, {
+    await mint({
       name: 'shop',
       site: 'shop',
       environment: 'production',
       tenantId: TENANT,
     });
     await expect(
-      mintSiteKey(t.db, {
+      mint({
         name: 'other',
         site: 'other',
         environment: 'production',
@@ -142,25 +153,25 @@ describe('mintSiteKey / revokeSiteKey', () => {
       environment: 'production' as const,
       tenantId: TENANT,
     };
-    await Promise.all([mintSiteKey(t.db, input), mintSiteKey(t.db, input)]);
+    await Promise.all([mint(input), mint(input)]);
     const live = await t.query('select id from reporting_site_keys where revoked_at is null');
     expect(live).toHaveLength(1);
   });
 
   it('a revoke is idempotent and keeps the first revoke time', async () => {
-    const minted = await mintSiteKey(t.db, {
+    const minted = await mint({
       name: 'shop',
       site: 'shop',
       environment: 'production',
       tenantId: TENANT,
     });
-    expect(await revokeSiteKey(t.db, minted.id)).toEqual({
+    expect(await revoke(minted.id)).toEqual({
       site: 'shop',
       environment: 'production',
     });
     const [before] = await t.query('select revoked_at from reporting_site_keys');
-    expect(await revokeSiteKey(t.db, minted.id)).toBeNull();
-    expect(await revokeSiteKey(t.db, 'unknown-id')).toBeNull();
+    expect(await revoke(minted.id)).toBeNull();
+    expect(await revoke('unknown-id')).toBeNull();
     const [after] = await t.query('select revoked_at from reporting_site_keys');
     expect(after?.revoked_at).toEqual(before?.revoked_at);
   });
@@ -169,20 +180,23 @@ describe('mintSiteKey / revokeSiteKey', () => {
 describe('databaseSiteKeys', () => {
   it('caches a found key, never an unknown one, and forgets a revoked one', async () => {
     let clock = 0;
-    const resolve = databaseSiteKeys(t.db, { now: () => clock, ttlMs: 1000 });
-    expect(await resolve('ci_rk_unknown')).toBeNull();
-    const minted = await mintSiteKey(t.db, {
+    const resolve = databaseSiteKeys({ now: () => clock, ttlMs: 1000 });
+    expect(await lookup(resolve, 'ci_rk_unknown')).toBeNull();
+    const minted = await mint({
       name: 'shop',
       site: 'shop',
       environment: 'stage',
       tenantId: TENANT,
     });
-    expect(await resolve(minted.secret)).toMatchObject({ site: 'shop', environment: 'stage' });
-    await revokeSiteKey(t.db, minted.id);
+    expect(await lookup(resolve, minted.secret)).toMatchObject({
+      site: 'shop',
+      environment: 'stage',
+    });
+    await revoke(minted.id);
     // Still cached: another process's revoke is seen up to ttlMs late.
-    expect(await resolve(minted.secret)).not.toBeNull();
+    expect(await lookup(resolve, minted.secret)).not.toBeNull();
     clock = 2000;
-    expect(await resolve(minted.secret)).toBeNull();
+    expect(await lookup(resolve, minted.secret)).toBeNull();
   });
 });
 

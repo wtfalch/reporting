@@ -12,6 +12,7 @@ import {
 } from './alerts.js';
 import { createReportingHandler } from './server.js';
 import { tenantIdOf } from './site-keys.js';
+import { inTenant } from './tenant.js';
 import { type TestDb, memoryLog, testDb } from './test/db.js';
 
 const OPERATOR = 'operator-key-for-tests';
@@ -109,6 +110,7 @@ const LINK = 'https://boule.acme.example/errors';
 function alerts() {
   return createAlerts({
     db: t.db,
+    tenantId: TENANT,
     mail: { transport: mail, from: 'Acme <no-reply@acme.example>' },
     log,
     now: () => clock,
@@ -323,16 +325,18 @@ describe('the alert-rules routes', () => {
     });
     // A write the database refuses (a release name past its 128 limit) leaves no audit row.
     await expect(
-      recordRelease(
-        t.db,
-        TENANT,
-        {
-          site: 'shop',
-          environment: 'stage',
-          release: 'x'.repeat(200),
-          since: '2026-11-10T10:00:00Z',
-        },
-        clock,
+      inTenant(t.db, TENANT, (tx) =>
+        recordRelease(
+          tx,
+          TENANT,
+          {
+            site: 'shop',
+            environment: 'stage',
+            release: 'x'.repeat(200),
+            since: '2026-11-10T10:00:00Z',
+          },
+          clock,
+        ),
       ),
     ).rejects.toThrow();
     const after = await t.query(
@@ -515,7 +519,14 @@ describe('a new kind of error', () => {
     await rules({ site: 'shop', rules: [rule('production', 'new_kind')], by: BY });
     clock = new Date(clock.getTime() + MINUTE);
     await report('production', [{ kind: 'TypeError', message: 'one', runtime: 'server' }]);
-    const a = createAlerts({ db: t.db, mail: null, log, now: () => clock, everyMs: 0 });
+    const a = createAlerts({
+      db: t.db,
+      tenantId: TENANT,
+      mail: null,
+      log,
+      now: () => clock,
+      everyMs: 0,
+    });
     expect((await a.tick()).skipped).toBe('no-mail');
     expect((await a.tick()).skipped).toBe('no-mail');
     expect(log.lines.filter((l) => l.level === 'warn')).toHaveLength(1);
@@ -535,6 +546,7 @@ describe('a send that never answers', () => {
     const hung: Transport = { send: () => new Promise<SendResult>(() => undefined) };
     const a = createAlerts({
       db: t.db,
+      tenantId: TENANT,
       mail: { transport: hung, from: 'Acme <no-reply@acme.example>' },
       log,
       now: () => clock,
@@ -652,5 +664,71 @@ describe('the mail', () => {
     expect(m.subject).toBe('New error in Shop (live)');
     expect(m.html).not.toContain('<script>');
     expect(m.text).toContain('<script>alert(1)</script>');
+  });
+});
+
+describe('the tick binds each database phase and sends mail outside any transaction', () => {
+  /** The test's database with a count of the top-level transactions open on it. */
+  function counted() {
+    let open = 0;
+    const db = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop !== 'transaction') return Reflect.get(target, prop, receiver);
+        return async (...args: Parameters<typeof t.db.transaction>) => {
+          open++;
+          try {
+            return await target.transaction(...args);
+          } finally {
+            open--;
+          }
+        };
+      },
+    });
+    return { db, open: () => open };
+  }
+
+  function guardedTransport(open: () => number) {
+    const opens: number[] = [];
+    const transport: Transport = {
+      async send(message): Promise<SendResult> {
+        opens.push(open());
+        if (open() !== 0) throw new Error('a send ran inside a transaction');
+        return mail.send(message);
+      },
+    };
+    return { transport, opens };
+  }
+
+  it('opens no transaction around a send, and every statement of a phase is bound', async () => {
+    await rules({
+      site: 'shop',
+      rules: [rule('production', 'new_kind', ['a@acme.example'])],
+      by: BY,
+    });
+    clock = new Date(clock.getTime() + MINUTE);
+    await report('production', [{ kind: 'TypeError', message: 'one', runtime: 'server' }]);
+    const c = counted();
+    const g = guardedTransport(c.open);
+    const a = createAlerts({
+      db: c.db,
+      tenantId: TENANT,
+      mail: { transport: g.transport, from: 'Acme <no-reply@acme.example>' },
+      log,
+      now: () => clock,
+      everyMs: 0,
+    });
+    expect(await a.tick()).toEqual({ sent: 1, failed: 0 });
+    expect(g.opens).toEqual([0]);
+    expect(mail.sent).toHaveLength(1);
+  });
+
+  it('the same check fails for a send made inside a transaction the test opens', async () => {
+    const c = counted();
+    const g = guardedTransport(c.open);
+    const message = { to: 'a@acme.example', from: 'x', subject: 's', html: 'h', text: 't' };
+    await expect(c.db.transaction(() => g.transport.send(message))).rejects.toThrow(
+      'a send ran inside a transaction',
+    );
+    expect(g.opens).toEqual([1]);
   });
 });

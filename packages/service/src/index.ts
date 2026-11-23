@@ -1,5 +1,6 @@
 export { createReportingHandler, type CreateReportingHandlerOptions } from './server.js';
 export { ServiceError, errorResponse, type ServiceErrorCode } from './errors.js';
+export { inTenant, type TenantDb } from './tenant.js';
 export { readTextCapped } from './body.js';
 export { consoleLogger, type Logger } from './log.js';
 export {

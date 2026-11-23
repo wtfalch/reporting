@@ -102,6 +102,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)(
       // The production composition, as instrumentation.ts injects it.
       vi.stubEnv('NODE_ENV', 'production');
       vi.stubEnv('DATABASE_URL', runtimeUrl.toString());
+      vi.stubEnv('AUTH_ORGANIZATION_ID', ORGANISATION);
       vi.resetModules();
       const { configureProductionComposition, resetProductionComposition } = await import(
         '../src/lib/composition.js'

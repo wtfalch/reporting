@@ -11,8 +11,19 @@ import { serviceTables } from '../tables.js';
 
 const schemaTables = { ...tables, ...serviceTables };
 
+/** One statement the service ran on the PGlite handle: `tx` numbers the top-level
+ * transaction it ran in, `null` outside any. */
+export interface LoggedStatement {
+  readonly tx: number | null;
+  readonly sql: string;
+  readonly params: unknown[];
+}
+
 export interface TestDb {
   db: Db;
+  /** PGlite only: every statement `db` ran, in order, and `clearLog()` empties it. */
+  statements: LoggedStatement[];
+  clearLog(): void;
   exec(text: string): Promise<void>;
   /** Raw rows for a query, whatever the driver. */
   query(text: string): Promise<Record<string, unknown>[]>;
@@ -27,6 +38,32 @@ async function dropSchema(url: string, schema: string): Promise<void> {
   } finally {
     await owner.close({ timeoutMs: 5000 });
   }
+}
+
+/** The PGlite client, with each query and each top-level transaction's queries recorded. */
+function logged(client: PGlite, statements: LoggedStatement[]): PGlite {
+  let counter = 0;
+  const wrap = <T extends object>(target: T, tx: number | null): T =>
+    new Proxy(target, {
+      get(inner, prop) {
+        const value = Reflect.get(inner, prop, inner);
+        if (typeof value !== 'function') return value;
+        if (prop === 'query') {
+          return (text: string, params: unknown[] = [], ...rest: unknown[]) => {
+            statements.push({ tx, sql: text, params });
+            return value.call(inner, text, params, ...rest);
+          };
+        }
+        if (prop === 'transaction' && tx === null) {
+          return (work: (handle: PGlite) => Promise<unknown>) => {
+            const id = ++counter;
+            return value.call(inner, (handle: PGlite) => work(wrap(handle, id)));
+          };
+        }
+        return value.bind(inner);
+      },
+    });
+  return wrap(client, null);
 }
 
 /**
@@ -55,6 +92,8 @@ export async function testDb(): Promise<TestDb> {
     });
     return {
       db: withDrizzle(owner, { schema: schemaTables }).orm,
+      statements: [],
+      clearLog: () => undefined,
       exec: (text) => owner.database.query(text).then(() => undefined),
       query: (text) => owner.database.query(text),
       async close() {
@@ -67,8 +106,13 @@ export async function testDb(): Promise<TestDb> {
   const client = new PGlite();
   const owner = createPgliteDatabase(client);
   await runMigrationSources({ owner, sources, log: () => undefined });
+  const statements: LoggedStatement[] = [];
   return {
-    db: drizzlePglite(client, { schema: schemaTables }),
+    db: drizzlePglite(logged(client, statements), { schema: schemaTables }),
+    statements,
+    clearLog: () => {
+      statements.length = 0;
+    },
     exec: (text) => client.exec(text).then(() => undefined),
     query: async (text) => (await client.query(text)).rows as Record<string, unknown>[],
     close: () => owner.close(),

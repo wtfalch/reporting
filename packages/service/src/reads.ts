@@ -1,7 +1,6 @@
 import {
   ACTOR_CLASSES,
   type Actor,
-  type Db,
   ERROR_RUNTIMES,
   ERROR_STATES,
   type ErrorRuntime,
@@ -31,6 +30,7 @@ import {
   SITE_PATTERN,
   type SeriesBucket,
 } from './schema.js';
+import { type TenantDb, savepoint } from './tenant.js';
 
 /** `limit` on the list: 1 to 100, 50 when absent. */
 export const LIST_LIMIT = { min: 1, max: 100, default: 50 } as const;
@@ -76,7 +76,7 @@ const NO_CONTEXTS = { company: [], mcp: [], account: [] } as const;
  * 20 per key) and how many of those rows carry `retryOf`.
  */
 export async function contextsOf(
-  db: Db,
+  db: TenantDb,
   site: string,
   fingerprints: readonly string[],
 ): Promise<Map<string, { contexts: ErrorGroup['contexts']; retries: number }>> {
@@ -133,7 +133,7 @@ function actorOf(resolvedBy: string | null): Actor | null {
  * a person is absent, which the caller reads as `null`.
  */
 export async function peopleOf(
-  db: Db,
+  db: TenantDb,
   site: string,
   fingerprints: readonly string[],
 ): Promise<Map<string, number>> {
@@ -237,7 +237,7 @@ function hasContext(filter: ContextFilter | undefined): filter is ContextFilter 
  * that carries every id asked for.
  */
 async function filteredPage(
-  db: Db,
+  db: TenantDb,
   o: ListOptions,
   context: ContextFilter,
 ): Promise<{ items: ReportingErrorRow[]; next: { lastSeenAt: Date; fingerprint: string } | null }> {
@@ -283,7 +283,7 @@ async function filteredPage(
 }
 
 /** Newest `lastSeenAt` first, keyset-paged, over core's `errorsPage`. */
-export async function listErrors(db: Db, o: ListOptions): Promise<ErrorsList> {
+export async function listErrors(db: TenantDb, o: ListOptions): Promise<ErrorsList> {
   const page = hasContext(o.context)
     ? await filteredPage(db, o, o.context)
     : await errorsPage(db, {
@@ -309,7 +309,7 @@ export async function listErrors(db: Db, o: ListOptions): Promise<ErrorsList> {
 
 /** One group of this site, or null. A group of another site is not this one. */
 export async function getError(
-  db: Db,
+  db: TenantDb,
   site: string,
   fingerprint: string,
   context?: ContextFilter,
@@ -341,12 +341,12 @@ export async function getError(
  * `open` clears both. Null for an unknown group or one of another site.
  */
 export async function setState(
-  db: Db,
+  db: TenantDb,
   tenantId: string | null,
   input: { site: string; fingerprint: string; state: ErrorState; by: Actor },
 ): Promise<ErrorGroup | null> {
   if (!FINGERPRINT_PATTERN.test(input.fingerprint)) return null;
-  return db.transaction(async (tx) => {
+  return savepoint(db, async (tx) => {
     const current = await errorDetail(tx, input.fingerprint);
     if (!current || current.site !== input.site) return null;
     const row = await setErrorState(tx, input.fingerprint, input.state, input.by);
@@ -380,7 +380,7 @@ export interface SeriesOptions {
  * Buckets start at `from` and run to `to`; every one is present, zeros
  * included. Counts every occurrence, also of groups since resolved.
  */
-export async function errorSeries(db: Db, o: SeriesOptions): Promise<ErrorSeries> {
+export async function errorSeries(db: TenantDb, o: SeriesOptions): Promise<ErrorSeries> {
   const ms = o.bucketMinutes * 60_000;
   const count = Math.ceil((o.to.getTime() - o.from.getTime()) / ms);
   const fromSeconds = o.from.getTime() / 1000;
@@ -432,7 +432,7 @@ export interface ByContextOptions {
  * Errors per context id over `[from, to)`: events carrying an id under `by`,
  * and how many different groups they fall in. Most errors first, 100 at most.
  */
-export async function errorsByContext(db: Db, o: ByContextOptions): Promise<ContextCount[]> {
+export async function errorsByContext(db: TenantDb, o: ByContextOptions): Promise<ContextCount[]> {
   const id = ctx(o.by);
   const conditions = [
     eq(reportingEvents.level, 'error'),
