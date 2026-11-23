@@ -30,6 +30,9 @@ export async function createRlsRoles(rows: Rows): Promise<void> {
       execute format('alter function %s owner to owner_r', r.signature);
     end loop;
   end $$`);
+  // PUBLIC keeps no right on the schema, as in a company database: the runtime role reaches it only through this grant.
+  await rows('revoke all on schema public from public');
+  await rows('grant usage on schema public to owner_r');
   await rows('grant usage on schema public to rt');
   await rows('grant select, insert, update on all tables in schema public to rt');
   await rows(`revoke update on ${INSERT_ONLY.join(', ')} from rt`);
