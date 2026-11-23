@@ -129,6 +129,68 @@ describe('forced row-level security on PGlite, as a non-superuser runtime role',
   });
 });
 
+/** Runs `work` as the table owner (bound by FORCE, as the definer functions are) bound to `tenant`, then rolls back. */
+async function asOwner<T>(rows: Rows, tenant: string, work: () => Promise<T>): Promise<T> {
+  await rows('begin');
+  try {
+    await rows('set local role owner_r');
+    await rows(`select set_config('app.tenant_id', '${tenant}', true)`);
+    return await work();
+  } finally {
+    await rows('rollback');
+    await rows('reset role');
+  }
+}
+
+describe('the delete policy of each analytics table is permissive', () => {
+  let store: Awaited<ReturnType<typeof pgliteStore>>;
+  beforeAll(async () => {
+    store = await pgliteStore();
+    await createRlsRoles(store.rows);
+    await seed(store.rows);
+  });
+
+  it.each(['reporting_analytics', 'reporting_analytics_daily', 'reporting_analytics_weekly'])(
+    'bound to A, a delete on %s removes the row of A and not the row of B',
+    async (table) => {
+      const mine = await asOwner(store.rows, A, () =>
+        store.rows(`delete from ${table} where tenant_id = '${A}' returning tenant_id`),
+      );
+      expect(mine).toHaveLength(1);
+      const theirs = await asOwner(store.rows, A, () =>
+        store.rows(`delete from ${table} where tenant_id = '${B}' returning tenant_id`),
+      );
+      expect(theirs).toEqual([]);
+    },
+  );
+});
+
+describe('the runtime role of the test helper', () => {
+  it('uses the schema public and the base tables, and does not hold update on the log tables or delete or truncate anywhere', async () => {
+    const store = await pgliteStore();
+    await createRlsRoles(store.rows);
+    const [row] = await store.rows(`select
+      has_schema_privilege('rt', 'public', 'usage') as usage,
+      has_schema_privilege('rt', 'public', 'create') as make,
+      has_table_privilege('rt', 'reporting_tenant_settings', 'select') as sel,
+      has_table_privilege('rt', 'reporting_tenant_settings', 'insert') as ins,
+      has_table_privilege('rt', 'reporting_tenant_settings', 'update') as upd,
+      has_table_privilege('rt', 'reporting_tenant_settings', 'delete') as del,
+      has_table_privilege('rt', 'reporting_events', 'update') as events_upd,
+      has_table_privilege('rt', 'reporting_events', 'insert') as events_ins`);
+    expect(row).toEqual({
+      usage: true,
+      make: false,
+      sel: true,
+      ins: true,
+      upd: true,
+      del: false,
+      events_upd: false,
+      events_ins: true,
+    });
+  });
+});
+
 describe('the prune functions, owned by a bound non-superuser, inside inTenant(A)', () => {
   /** Runs `select <call> as n` as rt inside a transaction bound to A, and commits it. */
   async function prune(store: Awaited<ReturnType<typeof pgliteStore>>, call: string) {
