@@ -39,6 +39,10 @@
       "types": "./dist/react/errors.d.ts",
       "default": "./dist/react/errors.js"
     },
+    "./tenant-policies": {
+      "types": "./dist/tenant-policies.d.ts",
+      "default": "./dist/tenant-policies.js"
+    },
     "./migrations-dir": {
       "types": "./dist/migrations-dir.d.ts",
       "default": "./dist/migrations-dir.js"

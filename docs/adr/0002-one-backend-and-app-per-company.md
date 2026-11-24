@@ -2,6 +2,7 @@
 
 Status: accepted, 2026-10-24. Supersedes
 [0001](0001-shared-collector-service-shape.md).
+Partly superseded by 0003 (row-level security).
 
 ## Context
 
