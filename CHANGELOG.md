@@ -20,6 +20,13 @@ Forced row-level security returns to the company database (ADR 0003).
 - During a rolling deploy an old container sets no tenant, so it sees only
   null-tenant rows and its tenant writes fail: expect error responses until it
   is gone.
+- Service migration `0006_tenant_policies.sql`: `tenant_id` on
+  `reporting_releases` and `reporting_alerts` (default from the session
+  setting, existing rows backfilled with the site key's tenant), and forced
+  row-level security on `reporting_site_keys`, `audit_events`,
+  `reporting_alert_rules`, `reporting_releases` and `reporting_alerts`. One
+  host test fails for any table without a policy or a reasoned place on the
+  global list.
 
 ## 2.1.0 - 2026-11-08
 

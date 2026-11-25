@@ -97,7 +97,12 @@ on the seven core tables that hold tenant rows (`GLOBAL_CORE_TABLES` in
 service reaches the database only through `inTenant(db, tenantId, work)`, a
 transaction whose first statement sets `app.tenant_id` to the host's tenant;
 a handler with no `tenantId` answers `not_configured` (503) on every route
-that touches the database. See `docs/adr/0003-forced-row-level-security-in-the-company-database.md`.
+that touches the database. Service migration `0006_tenant_policies.sql` binds the
+service's five tables the same way: it adds `tenant_id` to `reporting_releases`
+and `reporting_alerts` (default from the setting, backfilled from the site key's
+tenant) and forces row-level security on all five. `apps/host/tests/every-table-has-a-policy.test.ts`
+fails for any table in the schema with neither a policy nor a reason on the global list.
+See `docs/adr/0003-forced-row-level-security-in-the-company-database.md`.
 
 ## What it never does
 

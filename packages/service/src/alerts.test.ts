@@ -1,5 +1,6 @@
 import type { OutgoingMail, SendResult, Transport } from '@wtfalch/mailer';
 import { reportingEvents } from '@wtfalch/reporting-core';
+import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   ALERT_LIMITS,
@@ -730,5 +731,70 @@ describe('the tick binds each database phase and sends mail outside any transact
       'a send ran inside a transaction',
     );
     expect(g.opens).toEqual([1]);
+  });
+});
+
+describe('service-writes-set-the-tenant-column', () => {
+  const OTHER = tenantIdOf('org_other');
+
+  it('service-writes-set-the-tenant-column: rows a tick and a release record write carry the host tenant', async () => {
+    await rules({
+      site: 'shop',
+      name: 'Shop',
+      rules: [rule('production', 'new_kind')],
+      by: BY,
+    });
+    clock = new Date(clock.getTime() + MINUTE);
+    await report('production', [{ kind: 'TenantKind', message: 'boom', runtime: 'server' }]);
+    expect(await alerts().tick()).toEqual({ sent: 1, failed: 0 });
+    const release = await call('POST', '/v1/releases', {
+      site: 'shop',
+      environment: 'production',
+      release: 'tenant-col',
+      since: '2026-11-10T10:00:00Z',
+    });
+    expect(release.status).toBeLessThan(300);
+    const alertRows = await t.query('select distinct tenant_id from reporting_alerts');
+    expect(alertRows).toEqual([{ tenant_id: TENANT }]);
+    const releaseRows = await t.query(
+      "select tenant_id from reporting_releases where release = 'tenant-col'",
+    );
+    expect(releaseRows).toEqual([{ tenant_id: TENANT }]);
+  });
+
+  it('service-writes-set-the-tenant-column: with another tenant set, as role rt, the writes are refused', async () => {
+    await t.exec(`do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'rt') then create role rt nologin; end if;
+    end $$`);
+    await t.exec('grant select, insert, update on all tables in schema public to rt');
+    await t.exec('grant usage, select on all sequences in schema public to rt');
+    const asRt = <T>(work: (tx: Parameters<Parameters<typeof inTenant>[2]>[0]) => Promise<T>) =>
+      inTenant(t.db, OTHER, async (tx) => {
+        await tx.execute(sql`set local role rt`);
+        return work(tx);
+      });
+    await expect(
+      asRt((tx) =>
+        recordRelease(
+          tx,
+          TENANT,
+          {
+            site: 'shop',
+            environment: 'production',
+            release: 'refused',
+            since: '2026-11-10T10:00:00Z',
+          },
+          clock,
+        ),
+      ),
+    ).rejects.toThrow(/row-level security policy for table "reporting_releases"/);
+    await expect(
+      asRt((tx) =>
+        tx.execute(
+          sql`insert into reporting_alerts (site, environment, kind, subject, recipients, status, tenant_id)
+              values ('shop', 'production', 'new_kind', 'refused', '{}', 'sending', ${TENANT})`,
+        ),
+      ),
+    ).rejects.toThrow(/row-level security policy for table "reporting_alerts"/);
   });
 });
