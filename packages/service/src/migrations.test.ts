@@ -156,6 +156,12 @@ describe('0006_tenant_policies.sql', () => {
       { t: 'reporting_alerts', cmd: 'ALL', qual: NULLABLE, check: NULLABLE },
       { t: 'reporting_releases', cmd: 'ALL', qual: NULLABLE, check: NULLABLE },
       { t: 'reporting_site_keys', cmd: 'ALL', qual: STRICT, check: STRICT },
+      {
+        t: 'reporting_site_keys',
+        cmd: 'SELECT',
+        qual: expect.stringContaining('CURRENT_USER = pg_get_userbyid'),
+        check: null,
+      },
     ]);
   });
 });

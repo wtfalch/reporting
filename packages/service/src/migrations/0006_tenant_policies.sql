@@ -77,6 +77,11 @@ security definer
 as $$
   select exists (select 1 from reporting_site_keys where tenant_id <> tenant)
 $$;
+-- The definer runs as the table owner, which FORCE binds like any role; this
+-- policy lets the owner (and so the function) see every tenant's site keys.
+drop policy if exists reporting_site_keys_owner_select on reporting_site_keys;
+create policy reporting_site_keys_owner_select on reporting_site_keys for select
+  using (current_user = pg_get_userbyid((select relowner from pg_class where oid = 'reporting_site_keys'::regclass)));
 -- search_path pinned to the service schema (the one this migration runs in) and pg_temp.
 do $$
 begin

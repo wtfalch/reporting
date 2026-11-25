@@ -13,6 +13,15 @@ beforeAll(async () => {
   await t.exec(`do $$ begin
     if not exists (select 1 from pg_roles where rolname = 'rt') then create role rt nologin nosuperuser nobypassrls; end if;
   end $$`);
+  // Production's owner is neither superuser nor BYPASSRLS, so FORCE binds it and its definer functions.
+  await t.exec(`do $$ declare r record; begin
+    if not exists (select 1 from pg_roles where rolname = 'owner_r') then create role owner_r nologin nosuperuser nobypassrls; end if;
+    for r in select tablename from pg_tables where schemaname = current_schema() loop
+      execute format('alter table %I owner to owner_r', r.tablename);
+    end loop;
+    alter function reporting_other_tenant_has_key(uuid) owner to owner_r;
+  end $$`);
+  await t.exec('grant usage on schema public to owner_r, rt');
   await t.exec('grant select, insert, update on all tables in schema public to rt');
   await t.exec('grant usage, select on all sequences in schema public to rt');
   await t.exec('grant execute on function reporting_other_tenant_has_key(uuid) to rt');
