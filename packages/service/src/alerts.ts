@@ -309,7 +309,7 @@ export async function recordRelease(
   await savepoint(db, async (tx) => {
     await tx
       .insert(reportingReleases)
-      .values({ ...input, since, updatedAt: now })
+      .values({ ...input, since, updatedAt: now, tenantId: tenantId ?? undefined })
       .onConflictDoUpdate({
         target: [reportingReleases.site, reportingReleases.environment, reportingReleases.release],
         set: { since, updatedAt: now },
@@ -546,6 +546,7 @@ export function createAlerts(options: CreateAlertsOptions): Alerts {
         kind: rule.kind,
         subject,
         recipients: rule.recipients,
+        tenantId,
         status: 'sending',
         attempts: 1,
         createdAt: at,

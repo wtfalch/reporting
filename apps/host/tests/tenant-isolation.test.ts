@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { inTenant, tenantIdOf } from '@wtfalch/reporting-service';
+import { createHash, randomUUID } from 'node:crypto';
+import { databaseSiteKeys, inTenant, tenantIdOf } from '@wtfalch/reporting-service';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pgliteStore } from './pglite-store';
@@ -267,6 +267,98 @@ describe('the prune functions, owned by a bound non-superuser, inside inTenant(A
       { site: 'blog', n: 102 },
       { site: 'shop', n: 100 },
     ]);
+  });
+});
+
+/** The service's five tables: `strict` ones refuse a null tenant, `loose` ones keep null rows readable and writable. */
+const FIVE_STRICT = ['reporting_site_keys', 'reporting_alert_rules'];
+const FIVE_LOOSE = ['audit_events', 'reporting_releases', 'reporting_alerts'];
+const NULL_OK = ['reporting_releases', 'reporting_alerts'];
+const secretOf = (n: number) => `secret-${n}`;
+
+/** One row of a service table for `tenant` (null: no tenant). `n` keeps keys apart. */
+function serviceInsert(table: string, tenant: string | null, n: number): string {
+  const t = tenant === null ? 'null' : `'${tenant}'`;
+  switch (table) {
+    case 'reporting_site_keys':
+      return `insert into reporting_site_keys (id, name, secret_hash, site, environment, tenant_id)
+        values ('key-${String(n).padStart(5, '0')}', 'k', '${createHash('sha256').update(secretOf(n)).digest('hex')}', 'shop', 'production', ${t})`;
+    case 'reporting_alert_rules':
+      return `insert into reporting_alert_rules (site, environment, kind, enabled, enabled_since, tenant_id)
+        values ('shop${n}', 'production', 'new_kind', false, null, ${t})`;
+    case 'audit_events':
+      return `insert into audit_events (operation, tenant_id) values ('site_key.mint', ${t})`;
+    case 'reporting_releases':
+      return `insert into reporting_releases (site, environment, release, since, tenant_id)
+        values ('shop', 'production', 'r${n}', now(), ${t})`;
+    case 'reporting_alerts':
+      return `insert into reporting_alerts (site, environment, kind, subject, recipients, status, tenant_id)
+        values ('shop', 'production', 'new_kind', 's${n}', '{}', 'sent', ${t})`;
+    default:
+      throw new Error(table);
+  }
+}
+
+describe('binding-for-the-five-is-proved-in-the-gate: the service tables as rt', () => {
+  let store: Awaited<ReturnType<typeof pgliteStore>>;
+  beforeAll(async () => {
+    store = await pgliteStore();
+    await createRlsRoles(store.rows);
+    for (const [tenant, n] of [
+      [A, 1],
+      [B, 2],
+    ] as const) {
+      for (const table of [...FIVE_STRICT, ...FIVE_LOOSE]) {
+        await store.rows(serviceInsert(table, tenant, n));
+      }
+    }
+    for (const table of NULL_OK) await store.rows(serviceInsert(table, null, 3));
+  });
+
+  it.each(FIVE_STRICT)(
+    'binding-for-the-five-is-proved-in-the-gate: bound to A, %s shows A and not B',
+    async (table) => {
+      expect(await asRuntime(store.rows, A, () => tenantsOf(store.rows, table))).toEqual([A]);
+    },
+  );
+
+  it.each(FIVE_LOOSE)(
+    'binding-for-the-five-is-proved-in-the-gate: bound to A, %s shows A (and null rows), not B',
+    async (table) => {
+      const seen = await asRuntime(store.rows, A, () => tenantsOf(store.rows, table));
+      expect(seen).toEqual(NULL_OK.includes(table) ? [A, 'none'].sort() : [A]);
+    },
+  );
+
+  it.each([...FIVE_STRICT, ...FIVE_LOOSE])(
+    'binding-for-the-five-is-proved-in-the-gate: bound to A, an insert of %s for B is refused',
+    async (table) => {
+      await expect(
+        asRuntime(store.rows, A, () => store.rows(serviceInsert(table, B, 9))),
+      ).rejects.toThrow(`new row violates row-level security policy for table "${table}"`);
+    },
+  );
+
+  it.each(NULL_OK)(
+    'binding-for-the-five-is-proved-in-the-gate: a null-tenant row of %s stays readable and writable from A',
+    async (table) => {
+      await asRuntime(store.rows, A, () => store.rows(serviceInsert(table, null, 9)));
+      const touched = await asRuntime(store.rows, A, () =>
+        store.rows(`update ${table} set tenant_id = tenant_id where tenant_id is null returning 1`),
+      );
+      expect(touched).toHaveLength(1);
+    },
+  );
+
+  it('binding-for-the-five-is-proved-in-the-gate: databaseSiteKeys does not find the key of B inside inTenant(A)', async () => {
+    const resolver = databaseSiteKeys({ ttlMs: 0 });
+    const look = (secret: string) =>
+      inTenant(store.orm as never, A, async (tx) => {
+        await tx.execute(sql`set local role rt`);
+        return resolver(secret, tx);
+      });
+    expect(await look(secretOf(2))).toBeNull();
+    expect(await look(secretOf(1))).toMatchObject({ site: 'shop', tenantId: A });
   });
 });
 

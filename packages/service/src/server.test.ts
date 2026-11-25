@@ -896,6 +896,7 @@ describe('routes and the stores', () => {
       '0003_alerts.sql',
       '0004_release_audit.sql',
       '0005_alerts_dropped.sql',
+      '0006_tenant_policies.sql',
     ]);
   });
 });

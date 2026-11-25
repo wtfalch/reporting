@@ -124,6 +124,7 @@ describe('app.tenant_id is named in one place', () => {
   const ALLOWED = new Set([
     'packages/service/src/tenant.ts',
     'packages/reporting/src/migrations/0012_tenant_policies.sql',
+    'packages/service/src/migrations/0006_tenant_policies.sql',
   ]);
   const MAX_DEPTH = 8;
 

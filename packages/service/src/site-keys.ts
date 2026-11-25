@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Db } from '@wtfalch/reporting-core';
-import { and, eq, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { ServiceError } from './errors.js';
 import {
@@ -211,12 +211,13 @@ export async function mintSiteKey(
   const name = input.name.toLowerCase();
   return inTenant(db, input.tenantId, async (tx) => {
     await tx.execute(MINT_LOCK);
-    const foreign = await tx
-      .select({ id: reportingSiteKeys.id })
-      .from(reportingSiteKeys)
-      .where(ne(reportingSiteKeys.tenantId, input.tenantId))
-      .limit(1);
-    if (foreign.length > 0) {
+    const foreign = await tx.execute<{ other: boolean }>(
+      sql`select reporting_other_tenant_has_key(${input.tenantId}::uuid) as other`,
+    );
+    const foreignRows = Array.isArray(foreign)
+      ? foreign
+      : (foreign as { rows: { other: boolean }[] }).rows;
+    if (foreignRows[0]?.other === true) {
       throw new ServiceError('forbidden', 'This database already belongs to another company');
     }
     const revoked = await tx

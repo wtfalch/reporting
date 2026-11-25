@@ -66,6 +66,8 @@ export const reportingReleases = pgTable(
     release: text('release').notNull(),
     since: timestamp('since', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Filled by the column default from the session setting; null only before the backfill. */
+    tenantId: uuid('tenant_id'),
   },
   (t) => [primaryKey({ columns: [t.site, t.environment, t.release] })],
 );
@@ -83,6 +85,8 @@ export const reportingAlerts = pgTable('reporting_alerts', {
   attempts: integer('attempts').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   attemptedAt: timestamp('attempted_at', { withTimezone: true }),
+  /** Filled by the column default from the session setting; null only before the backfill. */
+  tenantId: uuid('tenant_id'),
 });
 
 export const serviceTables = {
