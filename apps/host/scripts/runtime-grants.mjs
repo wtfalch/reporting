@@ -48,6 +48,7 @@ export const RUNTIME_FUNCTIONS = [
   'reporting_prune_events(interval, integer)',
   'reporting_prune_errors(interval, integer)',
   'reporting_prune_open_errors(integer, integer)',
+  'reporting_other_tenant_has_key(uuid)',
 ];
 
 /** SECURITY DEFINER functions core's migrations still create and nothing here

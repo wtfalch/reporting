@@ -64,3 +64,25 @@ drop policy if exists reporting_alerts_tenant_all on reporting_alerts;
 create policy reporting_alerts_tenant_all on reporting_alerts for all
   using (tenant_id is null or tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
   with check (tenant_id is null or tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid);
+
+-- Forced row-level security hides another company's site keys from the
+-- runtime role, so the mint's foreign-company check cannot select them. This
+-- definer function answers it. The migration cannot name the runtime role:
+-- its EXECUTE comes from RUNTIME_FUNCTIONS in apps/host/scripts/runtime-grants.mjs.
+create or replace function reporting_other_tenant_has_key(tenant uuid)
+returns boolean
+language sql
+stable
+security definer
+as $$
+  select exists (select 1 from reporting_site_keys where tenant_id <> tenant)
+$$;
+-- search_path pinned to the service schema (the one this migration runs in) and pg_temp.
+do $$
+begin
+  execute format(
+    'alter function reporting_other_tenant_has_key(uuid) set search_path = %I, pg_temp',
+    current_schema()
+  );
+end $$;
+revoke all on function reporting_other_tenant_has_key(uuid) from public;
